@@ -1,69 +1,71 @@
-{
-  "name": "dsh-aftereffects",
-  "version": "1.0.0",
-  "description": "Drive Adobe After Effects from DeepSeek Harness: build compositions and motion-graphics templates, then render MP4 or PNG without leaving the chat.",
-  "type": "module",
-  "main": "index.js",
-  "exports": {
-    ".": "./index.js",
-    "./bridge": "./lib/bridge.js",
-    "./templates": "./lib/templates.js",
-    "./locale/*.json": "./locale/*.json",
-    "./icon": "./icon.svg",
-    "./package.json": "./package.json"
-  },
-  "files": [
-    "index.js",
-    "lib",
-    "locale/*.json",
-    "docs/DETAIL.md",
-    "docs/DETAIL.zh.md",
-    "docs/preview.svg",
-    "icon.svg",
-    "cordis.patch.yml",
-    "README.md",
-    "LICENSE"
-  ],
-  "keywords": [
-    "deepseek-harness",
-    "dsh",
-    "dsh-plugin",
-    "after-effects",
-    "adobe",
-    "extendscript",
-    "motion-graphics",
-    "video",
-    "render",
-    "mp4",
-    "template",
-    "animation",
-    "aftereffects"
-  ],
-  "engines": {
-    "node": ">=18"
-  },
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    }
-  },
-  "peerDependencies": {
-    "@deepseek-ai/cordis": ">=4.0.0 <5.0.0"
-  },
-  "peerDependenciesMeta": {},
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/MokoKing666/dsh-aftereffects.git"
-  },
-  "homepage": "https://github.com/MokoKing666/dsh-aftereffects#readme",
-  "bugs": {
-    "url": "https://github.com/MokoKing666/dsh-aftereffects/issues"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
-  "scripts": {
-    "test": "node test/smoke.mjs"
-  }
+﻿{
+    "name":  "dsh-aftereffects",
+    "version":  "1.0.0",
+    "description":  "Drive Adobe After Effects from DeepSeek Harness: build compositions and motion-graphics templates, then render MP4 or PNG without leaving the chat.",
+    "type":  "module",
+    "main":  "index.js",
+    "exports":  {
+                    ".":  "./index.js",
+                    "./bridge":  "./lib/bridge.js",
+                    "./templates":  "./lib/templates.js",
+                    "./locale/*.json":  "./locale/*.json",
+                    "./icon":  "./icon.svg",
+                    "./package.json":  "./package.json"
+                },
+    "files":  [
+                  "index.js",
+                  "lib",
+                  "locale/*.json",
+                  "docs/DETAIL.md",
+                  "docs/DETAIL.zh.md",
+                  "docs/preview.svg",
+                  "icon.svg",
+                  "cordis.patch.yml",
+                  "README.md",
+                  "LICENSE"
+              ],
+    "keywords":  [
+                     "deepseek-harness",
+                     "dsh",
+                     "dsh-plugin",
+                     "after-effects",
+                     "adobe",
+                     "extendscript",
+                     "motion-graphics",
+                     "video",
+                     "render",
+                     "mp4",
+                     "template",
+                     "animation",
+                     "aftereffects"
+                 ],
+    "engines":  {
+                    "node":  "\u003e=18"
+                },
+    "dsh":  {
+                "bundle":  {
+                               "patch":  "./cordis.patch.yml"
+                           }
+            },
+    "peerDependencies":  {
+                             "@deepseek-ai/cordis":  "\u003e=4.0.0 \u003c5.0.0"
+                         },
+    "peerDependenciesMeta":  {
+
+                             },
+    "license":  "MIT",
+    "repository":  {
+                       "type":  "git",
+                       "url":  "git+https://github.com/MokoKing666/dsh-aftereffects.git"
+                   },
+    "homepage":  "https://github.com/MokoKing666/dsh-aftereffects#readme",
+    "bugs":  {
+                 "url":  "https://github.com/MokoKing666/dsh-aftereffects/issues"
+             },
+    "publishConfig":  {
+                          "access":  "public"
+                      },
+    "scripts":  {
+                    "test":  "node test/smoke.mjs"
+                }
 }
