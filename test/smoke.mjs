@@ -97,9 +97,11 @@ try {
     output: join(workDir, 'frames', 'shot.png'),
     format: 'png',
   }, { timeoutMs: 600_000 })
-  assert.ok(seq.frames > 0, 'png sequence produced no frames')
+  // 3s at 24fps is 72 frames; a single file means the frame token was lost.
+  assert.ok(seq.frames > 1, `png sequence produced ${seq.frames} frame(s)`)
   assert.ok(existsSync(seq.first), 'first frame missing')
   console.log('frames  :', seq.frames, 'in', seq.dir)
+  console.log('first   :', seq.first)
 
   section('project round trip')
   const aep = join(workDir, 'smoke.aep')

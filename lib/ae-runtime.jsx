@@ -853,22 +853,40 @@ var DSH = (function () {
     return names;
   }
 
-  /** Probe every output template until one produces the wanted extension. */
+  /**
+   * Probe every output template until one produces the wanted extension.
+   *
+   * Templates whose name starts with an underscore are After Effects' own
+   * internal variants (`_HIDDEN X-Factor 8`, …): they write a PNG-looking file
+   * but only a single frame, so they are ranked last and only used when nothing
+   * else produces the extension.
+   */
   function resolveTemplate(om, wantExt) {
     var key = 'ext:' + wantExt;
     if (tplCache[key] !== undefined) return tplCache[key];
     var probeDir = ensureFolder(Folder.temp.fsName);
     var probe = new File(probeDir.fsName + '/dsh-probe');
     var names = templateList(om);
-    for (var i = 0; i < names.length; i++) {
+
+    // Stable partition: public templates first, then internal ones.
+    var ordered = [];
+    var i;
+    for (i = 0; i < names.length; i++) {
+      if (String(names[i]).charAt(0) !== '_') ordered.push(names[i]);
+    }
+    for (i = 0; i < names.length; i++) {
+      if (String(names[i]).charAt(0) === '_') ordered.push(names[i]);
+    }
+
+    for (i = 0; i < ordered.length; i++) {
       try {
-        om.applyTemplate(names[i]);
+        om.applyTemplate(ordered[i]);
         om.file = probe;
         var ext = String(om.file.name).toLowerCase();
         var m = ext.match(/\.([a-z0-9]+)$/);
         if (m && m[1] === wantExt) {
-          tplCache[key] = names[i];
-          return names[i];
+          tplCache[key] = ordered[i];
+          return ordered[i];
         }
       } catch (e) {}
     }
@@ -905,6 +923,59 @@ var DSH = (function () {
   }
 
   /**
+   * Export every frame of a composition as a numbered PNG file.
+   *
+   * The render queue's only PNG output templates are After Effects' internal
+   * `_HIDDEN X-Factor` variants, and those write a single image rather than a
+   * sequence. `saveFrameToPng` per frame is slower but produces exactly the
+   * numbered files the caller expects, at any resolution.
+   */
+  function renderPngSequence(comp, outPath, opts) {
+    var target = new File(outPath);
+    var dir = target.parent ? target.parent.fsName : Folder.current.fsName;
+    ensureFolder(dir);
+    var base = target.name.replace(/\.[a-z0-9]+$/i, '');
+
+    var from = isNum(opts.from) ? opts.from : 0;
+    var to = isNum(opts.to) ? opts.to : comp.duration;
+    var step = 1 / comp.frameRate;
+    var pad = isNum(opts.padding) ? opts.padding : 4;
+
+    var files = [];
+    var t0 = new Date().getTime();
+    var index = 0;
+    for (var t = from; t < to - step / 2; t += step) {
+      var digits = String(index);
+      while (digits.length < pad) digits = '0' + digits;
+      var framePath = dir + '/' + base + '_' + digits + '.png';
+      comp.saveFrameToPng(t, new File(framePath));
+      // saveFrameToPng writes asynchronously; wait for the file to land.
+      var waited = 0;
+      while (waited < 15000) {
+        var probe = new File(framePath);
+        if (probe.exists && probe.length > 0) break;
+        $.sleep(20);
+        waited += 20;
+      }
+      files.push({ name: base + '_' + digits + '.png', size: new File(framePath).length });
+      index++;
+    }
+
+    return {
+      comp: comp.name,
+      format: 'png',
+      template: 'saveFrameToPng',
+      status: RQItemStatus.DONE,
+      done: true,
+      ms: new Date().getTime() - t0,
+      dir: dir,
+      frames: files.length,
+      files: files.slice(0, 12),
+      first: files.length > 0 ? dir + '/' + files[0].name : ''
+    };
+  }
+
+  /**
    * Render a composition.
    * opts: { comp, output, format: 'mp4'|'png'|'mov'|'avi'|'tif'|'psd', stillAt, timeout }
    */
@@ -914,11 +985,26 @@ var DSH = (function () {
     var format = String(opts.format || 'mp4').toLowerCase();
     var outPath = fsPath(opts.output || (comp.name + '.' + (format === 'png' ? 'png' : format)));
 
+    if (isNum(opts.stillAt)) {
+      var stillFile = new File(outPath);
+      ensureFolder(stillFile.parent ? stillFile.parent.fsName : Folder.current.fsName);
+      comp.saveFrameToPng(opts.stillAt, stillFile);
+      var waited = 0;
+      while (waited < 15000) {
+        var probe = new File(outPath);
+        if (probe.exists && probe.length > 0) break;
+        $.sleep(100);
+        waited += 100;
+      }
+      return { format: 'png', still: true, time: opts.stillAt, file: fileInfo(outPath) };
+    }
+
+    if (format === 'png') return renderPngSequence(comp, outPath, opts);
+
     var item = app.project.renderQueue.items.add(comp);
     var om = item.outputModule(1);
 
-    var wantExt = format === 'png' ? 'png'
-      : format === 'mov' ? 'mov'
+    var wantExt = format === 'mov' ? 'mov'
       : format === 'avi' ? 'avi'
       : format === 'tif' || format === 'tiff' ? 'tif'
       : format === 'psd' ? 'psd'
@@ -936,28 +1022,19 @@ var DSH = (function () {
 
     var seqDir = null;
     var baseName = null;
-    if (wantExt === 'png' || wantExt === 'tif' || wantExt === 'psd') {
+    if (wantExt === 'tif' || wantExt === 'psd') {
       var target = new File(outPath);
       seqDir = target.parent ? target.parent.fsName : Folder.current.fsName;
       ensureFolder(seqDir);
       baseName = target.name.replace(/\.[a-z0-9]+$/i, '');
-      om.file = new File(seqDir + '/' + baseName);
+      // Without a frame-number token After Effects overwrites one file for every
+      // frame, leaving a single image behind. The token is what makes it a
+      // sequence.
+      var pattern = baseName;
+      if (pattern.indexOf('[') < 0 && pattern.indexOf('#') < 0) pattern = baseName + '_[####]';
+      om.file = new File(seqDir + '/' + pattern);
     } else {
       om.file = new File(outPath);
-    }
-
-    if (isNum(opts.stillAt)) {
-      var stillFile = new File(outPath);
-      comp.saveFrameToPng(opts.stillAt, stillFile);
-      var waited = 0;
-      while (waited < 15000) {
-        var probe = new File(outPath);
-        if (probe.exists && probe.length > 0) break;
-        $.sleep(100);
-        waited += 100;
-      }
-      try { item.remove(); } catch (e2) {}
-      return { format: 'png', still: true, time: opts.stillAt, file: fileInfo(outPath) };
     }
 
     var t0 = new Date().getTime();
