@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="300" viewBox="0 0 640 300" role="img" aria-label="A composition frame with a layer stack and a keyframe timeline being driven from a chat message">
+  <defs>
+    <linearGradient id="glow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4c8dff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#4c8dff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#4c8dff"/>
+      <stop offset="1" stop-color="#7de3c3"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="640" height="300" fill="#0b1020"/>
+  <ellipse cx="470" cy="90" rx="230" ry="150" fill="url(#glow)"/>
+
+  <g>
+    <rect x="32" y="52" width="150" height="46" rx="12" fill="#18203a" stroke="#2a3557"/>
+    <rect x="46" y="66" width="86" height="7" rx="3.5" fill="#8a93a8"/>
+    <rect x="46" y="80" width="58" height="7" rx="3.5" fill="#4c8dff"/>
+    <path d="M176 98 L188 108 L176 108 Z" fill="#18203a"/>
+  </g>
+
+  <path d="M196 92 C232 92 240 96 262 96" stroke="#4c8dff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-dasharray="7 6"/>
+  <path d="M256 90 L268 96 L256 102 Z" fill="#4c8dff"/>
+
+  <g>
+    <rect x="276" y="44" width="300" height="104" rx="8" fill="#121a30" stroke="#2a3557"/>
+    <rect x="310" y="60" width="72" height="6" rx="3" fill="url(#accent)"/>
+    <rect x="310" y="76" width="150" height="16" rx="4" fill="#f2f5ff"/>
+    <rect x="310" y="100" width="196" height="8" rx="4" fill="#8a93a8"/>
+    <rect x="310" y="116" width="120" height="8" rx="4" fill="#8a93a8" opacity="0.6"/>
+    <path d="M290 58 h14 M290 58 v14" stroke="#3a4670" stroke-width="2" fill="none"/>
+    <path d="M562 58 h-14 M562 58 v14" stroke="#3a4670" stroke-width="2" fill="none"/>
+    <path d="M290 134 h14 M290 134 v-14" stroke="#3a4670" stroke-width="2" fill="none"/>
+    <path d="M562 134 h-14 M562 134 v-14" stroke="#3a4670" stroke-width="2" fill="none"/>
+  </g>
+
+  <g>
+    <rect x="276" y="166" width="132" height="18" rx="4" fill="#1b2540" stroke="#2a3557"/>
+    <circle cx="288" cy="175" r="4" fill="#7de3c3"/>
+    <rect x="298" y="172" width="74" height="6" rx="3" fill="#6f7b9b"/>
+
+    <rect x="276" y="190" width="132" height="18" rx="4" fill="#1b2540" stroke="#2a3557"/>
+    <circle cx="288" cy="199" r="4" fill="#4c8dff"/>
+    <rect x="298" y="196" width="92" height="6" rx="3" fill="#6f7b9b"/>
+
+    <rect x="276" y="214" width="132" height="18" rx="4" fill="#1b2540" stroke="#2a3557"/>
+    <circle cx="288" cy="223" r="4" fill="#8a93a8"/>
+    <rect x="298" y="220" width="56" height="6" rx="3" fill="#6f7b9b"/>
+  </g>
+
+  <g>
+    <rect x="424" y="166" width="152" height="66" rx="6" fill="#121a30" stroke="#2a3557"/>
+    <path d="M434 178 h132" stroke="#2a3557" stroke-width="1"/>
+    <path d="M434 174 v8 M456 176 v6 M478 176 v6 M500 176 v6 M522 176 v6 M544 174 v8" stroke="#3a4670" stroke-width="1.5"/>
+    <rect x="434" y="190" width="96" height="9" rx="4.5" fill="#4c8dff" opacity="0.85"/>
+    <rect x="446" y="205" width="86" height="9" rx="4.5" fill="#7de3c3" opacity="0.75"/>
+    <rect x="434" y="220" width="64" height="9" rx="4.5" fill="#8a93a8" opacity="0.55"/>
+    <rect x="492" y="170" width="2" height="58" fill="#ff6b4a"/>
+    <path d="M489 168 h8 l-4 7 z" fill="#ff6b4a"/>
+  </g>
+
+  <g>
+    <rect x="424" y="244" width="152" height="30" rx="15" fill="#18203a" stroke="#2a3557"/>
+    <circle cx="442" cy="259" r="6" fill="#7de3c3" opacity="0.9"/>
+    <path d="M440 256 l6 3 l-6 3 z" fill="#0b1020"/>
+    <rect x="456" y="255" width="88" height="8" rx="4" fill="#6f7b9b"/>
+  </g>
+</svg>

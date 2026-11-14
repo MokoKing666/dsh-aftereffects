@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36" role="img" aria-label="After Effects">
+  <defs>
+    <clipPath id="aeFrameClip">
+      <rect x="5.5" y="9" width="25" height="18" rx="3"/>
+    </clipPath>
+  </defs>
+
+  <rect x="5.5" y="9" width="25" height="18" rx="3" fill="none" stroke="#8a93a8" stroke-width="1.6"/>
+
+  <g clip-path="url(#aeFrameClip)">
+    <rect x="5.5" y="9" width="9.5" height="18" fill="#4c8dff" opacity="0.22"/>
+    <rect x="15" y="9" width="1.4" height="18" fill="#4c8dff"/>
+  </g>
+
+  <path d="M15.7 6.2 L18.4 9 L15.7 11.8 L13 9 Z" fill="#4c8dff"/>
+
+  <g stroke="#8a93a8" stroke-width="1.4" stroke-linecap="round">
+    <path d="M9 31 v3"/>
+    <path d="M14 31 v2"/>
+    <path d="M19 31 v3"/>
+    <path d="M24 31 v2"/>
+    <path d="M29 31 v3"/>
+  </g>
+</svg>

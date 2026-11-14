@@ -1,0 +1,19 @@
+# dsh-aftereffects bundle patch.
+# Inserted into the profile's loader tree through `dsh.bundle.patch` in
+# package.json. Every value below can be overridden from the profile's own
+# cordis.patch.yml without editing this package.
+- insert:
+    - id: dsh-aftereffects
+      name: 'dsh-aftereffects'
+      config:
+        enabled: true
+        # Leave empty to auto-detect the newest installed After Effects.
+        executable: ''
+        # Empty means $DSH_HOME/aftereffects.
+        workDir: ''
+        # How long a freshly spawned headless After Effects may take to report in.
+        launchTimeoutMs: 120000
+        # Per-job ceiling; rendering waits inside the job.
+        jobTimeoutMs: 900000
+        # The headless instance exits by itself after this long.
+        keepAliveMs: 1800000

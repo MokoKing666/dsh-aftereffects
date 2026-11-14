@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "After Effects",
+    "description": "在对话里直接驱动 Adobe After Effects：按声明式场景文档或内置动效模板建合成，再渲染成 MP4、PNG 序列或静帧。提供 ae_status / ae_compose / ae_template / ae_render 四个工具。需要本机装有 After Effects；插件会拉起一个无界面实例，空闲后自行退出。",
+    "detail": "docs/DETAIL.zh.md"
+  }
+}

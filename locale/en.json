@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "After Effects",
+    "description": "Drive Adobe After Effects from the chat: build compositions and motion-graphics templates, then render MP4, PNG sequences or stills. Adds ae_status, ae_compose, ae_template and ae_render. Needs a local After Effects install; the plugin boots a headless instance and exits it when idle.",
+    "detail": "docs/DETAIL.md"
+  }
+}
