@@ -1,64 +1,64 @@
 {
-    "format":  1,
-    "title":  {
-                  "en":  "MokoKing666 plugins",
-                  "zh":  "MokoKing666 插件"
-              },
-    "description":  {
-                        "en":  "DSH plugins published by MokoKing666.",
-                        "zh":  "MokoKing666 发布的 DSH 插件。"
-                    },
-    "metadata":  {
-                     "categories":  {
-                                        "workflow":  {
-                                                         "title":  {
-                                                                       "en":  "Workflow \u0026 Automation",
-                                                                       "zh":  "工作流与自动化"
-                                                                   }
-                                                     }
-                                    }
-                 },
-    "plugins":  [
-                    {
-                        "name":  "dsh-aftereffects",
-                        "title":  {
-                                      "en":  "After Effects",
-                                      "zh":  "After Effects"
-                                  },
-                        "description":  {
-                                            "en":  "Drives Adobe After Effects from the chat - builds compositions and motion-graphics templates, then renders MP4, PNG sequences or stills.",
-                                            "zh":  "在对话里直接驱动 Adobe After Effects——按场景文档或内置模板建合成，再渲染成 MP4、PNG 序列或静帧。"
-                                        },
-                        "icon":  "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzNiIgaGVpZ2h0PSIzNiIgdmlld0JveD0iMCAwIDM2IDM2IiByb2xlPSJpbWciIGFyaWEtbGFiZWw9IkFmdGVyIEVmZmVjdHMiPgogIDxkZWZzPgogICAgPGNsaXBQYXRoIGlkPSJhZUZyYW1lQ2xpcCI+CiAgICAgIDxyZWN0IHg9IjUuNSIgeT0iOSIgd2lkdGg9IjI1IiBoZWlnaHQ9IjE4IiByeD0iMyIvPgogICAgPC9jbGlwUGF0aD4KICA8L2RlZnM+CgogIDxyZWN0IHg9IjUuNSIgeT0iOSIgd2lkdGg9IjI1IiBoZWlnaHQ9IjE4IiByeD0iMyIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjOGE5M2E4IiBzdHJva2Utd2lkdGg9IjEuNiIvPgoKICA8ZyBjbGlwLXBhdGg9InVybCgjYWVGcmFtZUNsaXApIj4KICAgIDxyZWN0IHg9IjUuNSIgeT0iOSIgd2lkdGg9IjkuNSIgaGVpZ2h0PSIxOCIgZmlsbD0iIzRjOGRmZiIgb3BhY2l0eT0iMC4yMiIvPgogICAgPHJlY3QgeD0iMTUiIHk9IjkiIHdpZHRoPSIxLjQiIGhlaWdodD0iMTgiIGZpbGw9IiM0YzhkZmYiLz4KICA8L2c+CgogIDxwYXRoIGQ9Ik0xNS43IDYuMiBMMTguNCA5IEwxNS43IDExLjggTDEzIDkgWiIgZmlsbD0iIzRjOGRmZiIvPgoKICA8ZyBzdHJva2U9IiM4YTkzYTgiIHN0cm9rZS13aWR0aD0iMS40IiBzdHJva2UtbGluZWNhcD0icm91bmQiPgogICAgPHBhdGggZD0iTTkgMzEgdjMiLz4KICAgIDxwYXRoIGQ9Ik0xNCAzMSB2MiIvPgogICAgPHBhdGggZD0iTTE5IDMxIHYzIi8+CiAgICA8cGF0aCBkPSJNMjQgMzEgdjIiLz4KICAgIDxwYXRoIGQ9Ik0yOSAzMSB2MyIvPgogIDwvZz4KPC9zdmc+Cg==",
-                        "homepage":  "https://github.com/MokoKing666/dsh-aftereffects#readme",
-                        "repository":  {
-                                           "url":  "https://github.com/MokoKing666/dsh-aftereffects"
-                                       },
-                        "metadata":  {
-                                         "category":  "workflow",
-                                         "keywords":  [
-                                                          "after-effects",
-                                                          "adobe",
-                                                          "video",
-                                                          "render",
-                                                          "template",
-                                                          "motion-graphics"
-                                                      ]
-                                     },
-                        "versions":  [
-                                         {
-                                             "version":  "1.0.0",
-                                             "publishTimestamp":  1794635403,
-                                             "source":  {
-                                                            "type":  "git",
-                                                            "url":  "https://github.com/MokoKing666/dsh-aftereffects",
-                                                            "commit":  "e1a0aaa704f19114fdeeacfd6844a7c35719d7dc"
-                                                        },
-                                             "engines":  {
-                                                             "dsh":  "\u003e=0.2.0-rc.2"
-                                                         }
-                                         }
-                                     ]
-                    }
-                ]
+  "format": 1,
+  "title": {
+    "en": "MokoKing666 plugins",
+    "zh": "MokoKing666 插件"
+  },
+  "description": {
+    "en": "DSH plugins published by MokoKing666.",
+    "zh": "MokoKing666 发布的 DSH 插件。"
+  },
+  "metadata": {
+    "categories": {
+      "workflow": {
+        "title": {
+          "en": "Workflow & Automation",
+          "zh": "工作流与自动化"
+        }
+      }
+    }
+  },
+  "plugins": [
+    {
+      "name": "dsh-aftereffects",
+      "title": {
+        "en": "After Effects",
+        "zh": "After Effects"
+      },
+      "description": {
+        "en": "Drives Adobe After Effects from the chat - builds compositions and motion-graphics templates, then renders MP4, PNG sequences or stills.",
+        "zh": "在对话里直接驱动 Adobe After Effects——按场景文档或内置模板建合成，再渲染成 MP4、PNG 序列或静帧。"
+      },
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzNiIgaGVpZ2h0PSIzNiIgdmlld0JveD0iMCAwIDM2IDM2IiByb2xlPSJpbWciIGFyaWEtbGFiZWw9IkFmdGVyIEVmZmVjdHMiPgogIDxkZWZzPgogICAgPGNsaXBQYXRoIGlkPSJhZUZyYW1lQ2xpcCI+CiAgICAgIDxyZWN0IHg9IjUuNSIgeT0iOSIgd2lkdGg9IjI1IiBoZWlnaHQ9IjE4IiByeD0iMyIvPgogICAgPC9jbGlwUGF0aD4KICA8L2RlZnM+CgogIDxyZWN0IHg9IjUuNSIgeT0iOSIgd2lkdGg9IjI1IiBoZWlnaHQ9IjE4IiByeD0iMyIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjOGE5M2E4IiBzdHJva2Utd2lkdGg9IjEuNiIvPgoKICA8ZyBjbGlwLXBhdGg9InVybCgjYWVGcmFtZUNsaXApIj4KICAgIDxyZWN0IHg9IjUuNSIgeT0iOSIgd2lkdGg9IjkuNSIgaGVpZ2h0PSIxOCIgZmlsbD0iIzRjOGRmZiIgb3BhY2l0eT0iMC4yMiIvPgogICAgPHJlY3QgeD0iMTUiIHk9IjkiIHdpZHRoPSIxLjQiIGhlaWdodD0iMTgiIGZpbGw9IiM0YzhkZmYiLz4KICA8L2c+CgogIDxwYXRoIGQ9Ik0xNS43IDYuMiBMMTguNCA5IEwxNS43IDExLjggTDEzIDkgWiIgZmlsbD0iIzRjOGRmZiIvPgoKICA8ZyBzdHJva2U9IiM4YTkzYTgiIHN0cm9rZS13aWR0aD0iMS40IiBzdHJva2UtbGluZWNhcD0icm91bmQiPgogICAgPHBhdGggZD0iTTkgMzEgdjMiLz4KICAgIDxwYXRoIGQ9Ik0xNCAzMSB2MiIvPgogICAgPHBhdGggZD0iTTE5IDMxIHYzIi8+CiAgICA8cGF0aCBkPSJNMjQgMzEgdjIiLz4KICAgIDxwYXRoIGQ9Ik0yOSAzMSB2MyIvPgogIDwvZz4KPC9zdmc+Cg==",
+      "homepage": "https://github.com/MokoKing666/dsh-aftereffects#readme",
+      "repository": {
+        "url": "https://github.com/MokoKing666/dsh-aftereffects"
+      },
+      "metadata": {
+        "category": "workflow",
+        "keywords": [
+          "after-effects",
+          "adobe",
+          "video",
+          "render",
+          "template",
+          "motion-graphics"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1794635403,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/MokoKing666/dsh-aftereffects",
+            "commit": "a4eff3ef1cd7e0c55c45a41400bed9b6dbe89576"
+          },
+          "engines": {
+            "dsh": ">=0.2.0-rc.2"
+          }
+        }
+      ]
+    }
+  ]
 }
