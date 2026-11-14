@@ -335,6 +335,7 @@ export function apply(ctx, config) {
           template: { type: 'string' },
           catalog: { type: 'json' },
           comp: { type: 'string' },
+          id: { type: 'number' },
           width: { type: 'number' },
           height: { type: 'number' },
           duration: { type: 'number' },
