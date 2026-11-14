@@ -16,7 +16,9 @@
     "index.js",
     "lib",
     "locale/*.json",
-    "docs",
+    "docs/DETAIL.md",
+    "docs/DETAIL.zh.md",
+    "docs/preview.svg",
     "icon.svg",
     "cordis.patch.yml",
     "README.md",
@@ -43,27 +45,12 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
-    },
-    "compatibility": {
-      "dshReleases": {
-        "0.2.1-rc.2": "compatible",
-        "0.2.2-rc.3": "compatible"
-      }
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": ">=4.0.0 <5.0.0",
-    "@deepseek-ai/dsh-system-prompt": ">=0.2.0-rc.2 <0.3.0-0",
-    "@deepseek-ai/dsh-tools": ">=0.2.0-rc.2 <0.3.0-0"
+    "@deepseek-ai/cordis": ">=4.0.0 <5.0.0"
   },
-  "peerDependenciesMeta": {
-    "@deepseek-ai/dsh-system-prompt": {
-      "optional": true
-    },
-    "@deepseek-ai/dsh-tools": {
-      "optional": true
-    }
-  },
+  "peerDependenciesMeta": {},
   "license": "MIT",
   "repository": {
     "type": "git",

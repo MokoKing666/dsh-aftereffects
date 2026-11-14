@@ -1,7 +1,5 @@
 ﻿_probe/
+_frames/
 node_modules/
 *.aep
-*.mp4
-*.png
-!docs/*.png
 
