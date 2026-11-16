@@ -47,12 +47,12 @@
       },
       "versions": [
         {
-          "version": "1.0.1",
+          "version": "1.0.2",
           "publishTimestamp": 1794635403,
           "source": {
             "type": "git",
             "url": "https://github.com/MokoKing666/dsh-aftereffects",
-            "commit": "3815d22b97756a26b230627e80b8a6f7522dc220"
+            "commit": "b36990d2e27cade22ad5e03f409e0dbef578b370"
           },
           "engines": {
             "dsh": ">=0.2.0-rc.2"
