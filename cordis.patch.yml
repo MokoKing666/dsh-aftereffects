@@ -5,6 +5,10 @@
 - insert:
     - id: dsh-aftereffects
       name: 'dsh-aftereffects'
+      # Cordis resolves required services from the entry's inject declaration,
+      # not from `export const inject` in the module. Without this, ctx.tools
+      # and ctx.systemPrompt are inaccessible and the plugin fails to load.
+      inject: [systemPrompt, tools]
       config:
         enabled: true
         # Leave empty to auto-detect the newest installed After Effects.
