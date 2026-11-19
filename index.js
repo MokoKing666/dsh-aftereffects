@@ -20,7 +20,7 @@ import { ASPECT_NAMES, TEMPLATE_NAMES, THEME_NAMES, buildTemplate, templateCatal
 import { assertEs3 } from './lib/es3-guard.js'
 import { registerProTools } from './lib/pro-tools.js'
 import { defineToolSafe } from './lib/tool-def.js'
-import { assertSafeToProceed, listCheckpoints } from './lib/checkpoint.js'
+import { guardSceneBuild, guardScript } from './lib/gate.js'
 
 /** Identity shown in the plugin inventory. */
 export const name = 'dsh-aftereffects'
@@ -87,21 +87,27 @@ const EMPTY_SCENE = {
 }
 
 /**
- * Find the newest verified checkpoint for a project.
+ * 建片前的统一门禁说明。
  *
- * The gate needs a file it can trust, so this reads the checkpoint directory
- * and verifies each candidate rather than trusting a name.
+ * 抽成一行调用，是因为 `ae_compose` 和 `ae_template` 最终都走
+ * `bridge.runtime('buildScene', scene)` —— 那条路径默认会删掉同名合成。
+ * 门禁只接在其中一个工具上，另一个就是现成的绕过通道。
+ *
+ * @returns {Promise<{ok:true, gate:string}|{ok:false, error:string}>}
  */
-async function lastVerifiedCheckpoint(bridge, serial, projectPath) {
-  if (!projectPath) return null
+async function gateSceneBuild(bridge, serial, scene) {
   try {
-    const status = await serial(() => bridge.runtime('pro:projectStatus', {}))
-    const dir = status?.checkpointDir ?? null
-    const listed = listCheckpoints(projectPath, dir ?? undefined)
-    const newest = listed.checkpoints.find((c) => c.verified)
-    return newest ? { path: newest.path, verified: true } : null
-  } catch {
-    return null
+    const guarded = await guardSceneBuild({
+      bridge,
+      serial,
+      compName: typeof scene?.name === 'string' ? scene.name : '',
+      resetProject: scene?.resetProject === true,
+      replace: scene?.replace !== false,
+    })
+    if (!guarded.gated) return { ok: true, gate: '' }
+    return { ok: true, gate: `${guarded.reason}：${guarded.checkpoint}` }
+  } catch (error) {
+    return { ok: false, error: error.message }
   }
 }
 
@@ -256,7 +262,9 @@ export function apply(ctx, config) {
       '层类型：text（文字，支持 charReveal 逐字显现、typewriter 打字机）、shape（rect/ellipse/path，支持 trim 描边动画）、solid（纯色）、null（控制器）、footage（导入图片/视频）、precomp（嵌入另一个合成）。',
       '每个层都能带 x/y/scale/rotation/opacity/anchor，以及 animate 数组做关键帧：{ property, from, to, start, end, ease }，property 可取 opacity、scale、position、position.x、rotation、anchor，或 effect:<效果名>:<参数名>。ease 可取 linear、in、out、both、hold。',
       'effects 数组给层加特效，例如 { name: "glow", radius: 40, intensity: 1.5 }；可用效果见 ae_status 的说明或模板源码。',
+      '默认会**替换同名合成**（旧的会被删掉）。要保留旧合成、另加一个，就换一个 name，或显式传 scene.replace: false。',
       '只会新建或替换同名合成，不会清空项目——除非 scene.resetProject 为 true。',
+      '**替换同名合成或 resetProject 之前会自动做一份经过校验的工程备份**；无法备份（例如工程还没保存过）时直接拒绝执行，不会裸删。结果里的 `gate` 字段会回报备份路径。',
     ].join('\n'),
     timeoutMs: 600_000,
     parameters: {
@@ -284,6 +292,7 @@ export function apply(ctx, config) {
           layerCount: { type: 'number' },
           layers: {},
           saved: { type: 'string' },
+          gate: { type: 'string' },
           error: { type: 'string' },
         },
       },
@@ -291,6 +300,7 @@ export function apply(ctx, config) {
         if (value.error) return text(value.error)
         const lines = [summarizeScene(value)]
         if (value.saved) lines.push(`项目已保存：${value.saved}`)
+        if (value.gate) lines.push(value.gate)
         return text(lines.join('\n'))
       },
     },
@@ -300,21 +310,14 @@ export function apply(ctx, config) {
         return { ...EMPTY_SCENE, error: 'scene 必须是对象' }
       }
 
-      // Program-level gate, not a prompt suggestion: resetProject wipes the
-      // whole project, so it needs a verified checkpoint first.
-      if (scene.resetProject === true) {
-        try {
-          const gate = await serial(() => bridge.runtime('pro:projectStatus', {}))
-          assertSafeToProceed({
-            operation: 'resetProject',
-            projectPath: gate?.file ?? null,
-            lastCheckpoint: await lastVerifiedCheckpoint(bridge, serial, gate?.file ?? null),
-            context: { compCount: gate?.compCount ?? undefined },
-          })
-        } catch (error) {
-          return { ...EMPTY_SCENE, error: error.message }
-        }
-      }
+      // ── 程序级门禁 ────────────────────────────────────────────────
+      // 两条真实破坏性路径都在这里拦，而不是靠模型自觉：
+      //   1. resetProject 清空整个工程
+      //   2. 同名合成替换（buildScene 默认行为，会删掉旧合成）
+      // 两者都要求**当前状态**的已验证备份，旧的备份不算。
+      const gated = await gateSceneBuild(bridge, serial, scene)
+      if (!gated.ok) return { ...EMPTY_SCENE, error: gated.error }
+      const gateNote = gated.gate
 
       try {
         const built = await serial(() => bridge.runtime('buildScene', scene))
@@ -333,6 +336,7 @@ export function apply(ctx, config) {
           layerCount: Number(built.layerCount ?? 0),
           layers: built.layers ?? [],
           saved,
+          gate: gateNote,
           error: '',
         }
       } catch (error) {
@@ -385,6 +389,7 @@ export function apply(ctx, config) {
           layerCount: { type: 'number' },
           layers: {},
           saved: { type: 'string' },
+          gate: { type: 'string' },
           error: { type: 'string' },
         },
       },
@@ -400,16 +405,29 @@ export function apply(ctx, config) {
         }
         const lines = [summarizeScene(value)]
         if (value.saved) lines.push(`项目已保存：${value.saved}`)
+        if (value.gate) lines.push(value.gate)
         return text(lines.join('\n'))
       },
     },
     async execute(args) {
       const templateName = String(args?.template ?? '').trim()
       if (templateName === 'list') {
-        return { template: 'list', catalog: templateCatalog(), ...EMPTY_SCENE, error: '' }
+        return { template: 'list', catalog: templateCatalog(), ...EMPTY_SCENE, gate: '', error: '' }
       }
+      let scene
       try {
-        const scene = buildTemplate(templateName, args?.options ?? {})
+        scene = buildTemplate(templateName, args?.options ?? {})
+      } catch (error) {
+        return { template: templateName, catalog: [], ...EMPTY_SCENE, gate: '', error: formatError(error) }
+      }
+
+      // 与 ae_compose 同一条路径：模板建片同样会删掉同名合成，不能成为绕过门禁的通道。
+      const gated = await gateSceneBuild(bridge, serial, scene)
+      if (!gated.ok) {
+        return { template: templateName, catalog: [], ...EMPTY_SCENE, gate: '', error: gated.error }
+      }
+
+      try {
         const built = await serial(() => bridge.runtime('buildScene', scene))
         let saved = ''
         if (typeof args.save === 'string' && args.save.trim() !== '') {
@@ -428,10 +446,11 @@ export function apply(ctx, config) {
           layerCount: Number(built.layerCount ?? 0),
           layers: built.layers ?? [],
           saved,
+          gate: gated.gate,
           error: '',
         }
       } catch (error) {
-        return { template: templateName, catalog: [], ...EMPTY_SCENE, error: formatError(error) }
+        return { template: templateName, catalog: [], ...EMPTY_SCENE, gate: '', error: formatError(error) }
       }
     },
   })
@@ -551,6 +570,8 @@ export function apply(ctx, config) {
     description: [
       '在 After Effects 里执行任意 ExtendScript，是其余工具的逃生舱。',
       '**发送前会做 ES3 语法预检**：检测到 const / let / 箭头函数 / 模板字符串 / class / for-of / async 等 ES2015+ 语法时，直接在 DSH 侧拦截并指出行号列号——AE 不会执行任何代码，也不会有弹窗。',
+      '**写操作会先做工程备份**：脚本里出现 setValue / remove / addProperty / expression= / 各种属性赋值等写模式时，执行前会创建并校验 Checkpoint；无法备份时直接拒绝执行，不会裸跑。',
+      '**纯读取脚本不会被打断**：没有写模式时按只读放行（也可以显式传 readOnly: true），未保存的工程里读版本号、列图层都能正常执行。',
       '执行时自动包在 undo 组里，出错返回精确的 e.message、e.line 与出错那一行源码。',
       'payload 会成为脚本里的 payload 变量，用来传参数。返回值必须是可 JSON 序列化的值。',
     ].join('\n'),
@@ -559,6 +580,10 @@ export function apply(ctx, config) {
       code: { type: 'string', required: true, description: '要执行的 ExtendScript 源码（纯 ES3）。' },
       payload: { type: 'json', description: '传给脚本的 payload 变量。' },
       label: { type: 'string', description: 'undo 组标签，默认 DSH_AE。' },
+      readOnly: {
+        type: 'boolean',
+        description: '声明这段脚本只读。只有确实不修改工程时才设 true；含写模式的脚本即使声明只读也会被备份保护。',
+      },
     },
     output: {
       schema: {
@@ -571,6 +596,7 @@ export function apply(ctx, config) {
           line: { type: 'number' },
           context: { type: 'string' },
           violations: {},
+          gate: { type: 'string' },
         },
       },
       render: (_args, value) => {
@@ -578,7 +604,8 @@ export function apply(ctx, config) {
           const pretty = value.value === null || value.value === undefined
             ? '(无返回值)'
             : JSON.stringify(value.value, null, 2)
-          return text(`执行成功：\n${pretty}`)
+          const gated = value.gate ? `\n（执行前已备份：${value.gate}）` : ''
+          return text(`执行成功：\n${pretty}${gated}`)
         }
         const lines = [value.error]
         if (typeof value.line === 'number' && value.line > 0) lines.push(`AE 报错行：${value.line}`)
@@ -589,7 +616,7 @@ export function apply(ctx, config) {
     async execute(args) {
       const code = String(args?.code ?? '')
       if (code.trim() === '') {
-        return { ok: false, value: null, error: 'code 不能为空', line: -1, context: '', violations: [] }
+        return { ok: false, value: null, error: 'code 不能为空', line: -1, context: '', violations: [], gate: '' }
       }
       // Pre-flight: stop ES2015+ before After Effects ever parses it.
       try {
@@ -597,22 +624,52 @@ export function apply(ctx, config) {
       } catch (error) {
         return {
           ok: false, value: null, error: error.message, line: -1, context: '',
-          violations: error.violations ?? [],
+          violations: error.violations ?? [], gate: '',
         }
       }
+
+      // ── 程序级门禁 ────────────────────────────────────────────────
+      // 这是唯一能执行任意 ExtendScript 的入口，不能成为绕过保护的通道。
+      // 规则分两种，混在一起会让保护变成噪音：
+      //   - 检测到写模式 → 必须先备份；备份不成则拒绝执行。
+      //   - 没检测到写模式 → 它毁不掉任何东西，放行（并说明按只读处理）。
+      let gateNote = ''
+      try {
+        const guarded = await guardScript({
+          code,
+          readOnly: args?.readOnly === true,
+          bridge,
+          serial,
+        })
+        if (guarded.blocked) {
+          return {
+            ok: false, value: null,
+            error: `这段脚本含写操作，但无法建立可信备份，已拒绝执行。\n${guarded.reason}`,
+            line: -1, context: '', violations: [], gate: '',
+          }
+        }
+        if (guarded.gated && guarded.checkpoint) gateNote = guarded.checkpoint
+      } catch (error) {
+        return {
+          ok: false, value: null,
+          error: `安全检查未通过，脚本未执行：${error.message}`,
+          line: -1, context: '', violations: [], gate: '',
+        }
+      }
+
       try {
         const value = await serial(() => bridge.runtime('pro:runGuarded', {
           code,
           payload: args?.payload,
           label: args?.label,
         }))
-        return { ok: true, value: value ?? null, error: '', line: -1, context: '', violations: [] }
+        return { ok: true, value: value ?? null, error: '', line: -1, context: '', violations: [], gate: gateNote }
       } catch (error) {
         return {
           ok: false, value: null, error: formatError(error),
           line: typeof error.line === 'number' ? error.line : -1,
           context: typeof error.context === 'string' ? error.context : '',
-          violations: [],
+          violations: [], gate: gateNote,
         }
       }
     },
@@ -649,6 +706,7 @@ export function apply(ctx, config) {
         '4. **字幕框自适应**用 `ae_auto_fit_text`（真实 `sourceRectAtTime()` + `toComp/fromComp` 坐标换算）。**只用于需要自适应的字幕/底栏**；用户明确要固定尺寸时不要强加。禁止写死宽高伪装自适应。',
         '5. **动画默认加缓动**：`ae_animate` 的 `ease` 至少给 `out` 或 `both`。**但用户明确要线性动画时照做**——规则是默认值，不是禁令。',
         '6. **高风险操作先 checkpoint**：`resetProject`、删合成、批量删层、批量清效果、替换素材等。程序级门禁会拒绝没有已验证备份的这类操作。',
+        '   **建片已自动兜住**：`ae_compose` / `ae_template` 替换同名合成、`ae_run_script` 的写脚本、`ae_checkpoint action=restore` 都会在执行前自动备份并校验，失败就拒绝执行——不需要你再手动 `ae_checkpoint` 一次。返回里的 `gate` 字段就是那份备份的路径。',
         '7. **视觉自检**：挂完重型特效或排完版，用 `ae_capture_preview` 截图（建议 longEdge≈640，多帧用 `count`）。',
         '',
         '### 关于"看图"的诚实说明',

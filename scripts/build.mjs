@@ -133,8 +133,31 @@ console.log('\n[3/4] Tool definitions compile to gateway-safe JSON Schema')
 
   if (badTypes.length > 0) for (const b of badTypes) fail(`invalid schema type: ${b}`)
   if (propLevelRequired.length > 0) for (const r of propLevelRequired) fail(`property-level required: ${r}`)
-  if (badTypes.length === 0 && propLevelRequired.length === 0) {
-    pass(`${registered.length} tools, no invalid type, no property-level required`)
+
+  // 参数被重复编译过一次：整份 schema 被当成「参数名 → 定义」的映射再走一遍，
+  // 于是每个工具的参数退化成 type / properties / additionalProperties 三个假参数。
+  // 只查 type 合法性抓不到它——那三个假参数的 schema 本身是合法的。
+  let emptyParams = 0
+  for (const definition of registered) {
+    const props = definition.parameters?.properties ?? {}
+    const keys = Object.keys(props)
+    if (keys.length === 0) {
+      emptyParams += 1
+      fail(`${definition.name}: declares no parameters — the gateway will reject every call`)
+      continue
+    }
+    const triple = keys.includes('type') && keys.includes('properties') && keys.includes('additionalProperties')
+    if (triple) {
+      fail(`${definition.name}: parameters look double-compiled (${keys.join(', ')})`)
+    }
+    for (const [param, node] of Object.entries(props)) {
+      if (node && typeof node === 'object' && node.type === 'object' && node.properties !== undefined) {
+        fail(`${definition.name}.${param}: value is a whole object schema — parameters were compiled twice`)
+      }
+    }
+  }
+  if (emptyParams === 0 && badTypes.length === 0 && propLevelRequired.length === 0) {
+    pass(`${registered.length} tools, no invalid type, no property-level required, no empty parameter list`)
   }
   const names = registered.map((d) => d.name)
   const unique = new Set(names)

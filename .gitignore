@@ -1,5 +1,6 @@
-﻿_probe/
+_probe/
 _frames/
 node_modules/
 *.aep
+.dsh-code-index/
 

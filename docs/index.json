@@ -26,8 +26,8 @@
         "zh": "After Effects"
       },
       "description": {
-        "en": "Drives Adobe After Effects from the chat - builds compositions and motion-graphics templates, then renders MP4, PNG sequences or stills.",
-        "zh": "在对话里直接驱动 Adobe After Effects——按场景文档或内置模板建合成，再渲染成 MP4、PNG 序列或静帧。"
+        "en": "Drives Adobe After Effects from the chat - builds compositions and motion-graphics templates, scans native and third-party effects, inspects plugin parameters, captures previews, binds Essential Graphics controllers and marks audio beats, with verified project checkpoints gating every destructive edit.",
+        "zh": "在对话里直接驱动 Adobe After Effects——按场景文档或内置模板建合成，扫描原生与第三方特效、穿透插件参数、截图审片、绑定基本图形控制器、按音频波形打点，所有破坏性操作前强制经过校验的工程备份门禁。"
       },
       "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzNiIgaGVpZ2h0PSIzNiIgdmlld0JveD0iMCAwIDM2IDM2IiByb2xlPSJpbWciIGFyaWEtbGFiZWw9IkFmdGVyIEVmZmVjdHMiPgogIDxkZWZzPgogICAgPGNsaXBQYXRoIGlkPSJhZUZyYW1lQ2xpcCI+CiAgICAgIDxyZWN0IHg9IjUuNSIgeT0iOSIgd2lkdGg9IjI1IiBoZWlnaHQ9IjE4IiByeD0iMyIvPgogICAgPC9jbGlwUGF0aD4KICA8L2RlZnM+CgogIDxyZWN0IHg9IjUuNSIgeT0iOSIgd2lkdGg9IjI1IiBoZWlnaHQ9IjE4IiByeD0iMyIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjOGE5M2E4IiBzdHJva2Utd2lkdGg9IjEuNiIvPgoKICA8ZyBjbGlwLXBhdGg9InVybCgjYWVGcmFtZUNsaXApIj4KICAgIDxyZWN0IHg9IjUuNSIgeT0iOSIgd2lkdGg9IjkuNSIgaGVpZ2h0PSIxOCIgZmlsbD0iIzRjOGRmZiIgb3BhY2l0eT0iMC4yMiIvPgogICAgPHJlY3QgeD0iMTUiIHk9IjkiIHdpZHRoPSIxLjQiIGhlaWdodD0iMTgiIGZpbGw9IiM0YzhkZmYiLz4KICA8L2c+CgogIDxwYXRoIGQ9Ik0xNS43IDYuMiBMMTguNCA5IEwxNS43IDExLjggTDEzIDkgWiIgZmlsbD0iIzRjOGRmZiIvPgoKICA8ZyBzdHJva2U9IiM4YTkzYTgiIHN0cm9rZS13aWR0aD0iMS40IiBzdHJva2UtbGluZWNhcD0icm91bmQiPgogICAgPHBhdGggZD0iTTkgMzEgdjMiLz4KICAgIDxwYXRoIGQ9Ik0xNCAzMSB2MiIvPgogICAgPHBhdGggZD0iTTE5IDMxIHYzIi8+CiAgICA8cGF0aCBkPSJNMjQgMzEgdjIiLz4KICAgIDxwYXRoIGQ9Ik0yOSAzMSB2MyIvPgogIDwvZz4KPC9zdmc+Cg==",
       "homepage": "https://github.com/MokoKing666/dsh-aftereffects#readme",
@@ -42,17 +42,19 @@
           "video",
           "render",
           "template",
-          "motion-graphics"
+          "motion-graphics",
+          "checkpoint",
+          "effect-scan"
         ]
       },
       "versions": [
         {
-          "version": "1.0.2",
-          "publishTimestamp": 1794635403,
+          "version": "3.0.1",
+          "publishTimestamp": 1795080379,
           "source": {
             "type": "git",
             "url": "https://github.com/MokoKing666/dsh-aftereffects",
-            "commit": "b36990d2e27cade22ad5e03f409e0dbef578b370"
+            "commit": "PLACEHOLDER"
           },
           "engines": {
             "dsh": ">=0.2.0-rc.2"

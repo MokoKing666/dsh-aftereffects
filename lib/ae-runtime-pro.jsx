@@ -1116,8 +1116,12 @@ var DSH_PRO = (function () {
   function projectStatus() {
     var file = app.project.file ? app.project.file.fsName : null;
     var compCount = 0;
+    var compNames = [];
     for (var i = 1; i <= app.project.numItems; i++) {
-      try { if (app.project.item(i) instanceof CompItem) compCount++; } catch (e) {}
+      try {
+        var it = app.project.item(i);
+        if (it instanceof CompItem) { compCount++; compNames.push(it.name); }
+      } catch (e) {}
     }
     var dir = null;
     if (file !== null) {
@@ -1131,6 +1135,7 @@ var DSH_PRO = (function () {
       file: file,
       saved: file !== null,
       compCount: compCount,
+      compNames: compNames,
       items: app.project.numItems,
       renderQueue: app.project.renderQueue.numItems,
       checkpointDir: dir

@@ -54,9 +54,10 @@
 | `lib/contact-sheet.js` | 纯 Node PNG 解码/编码/合成，无原生依赖 |
 | `lib/effect-cache.js` | 效果扫描缓存（按 AE 版本失效）+ 厂商分类表 |
 | `lib/checkpoint.js` | 备份验证、清单、裁剪、恢复门禁 |
+| `lib/gate.js` | **执行门禁**：把判定接到真实执行路径（建片 / 脚本 / 恢复），含脚本写模式分类器 |
 | `scripts/test.mjs` | `npm test`：先单测，再 AE 集成 |
 | `scripts/test-ae.mjs` | 28 项实机集成测试 |
-| `test/*.test.mjs` | 94 项单元测试 |
+| `test/*.test.mjs` | 150 项单元测试 |
 
 ---
 
@@ -66,22 +67,37 @@
 
 ```
 npm run build   → passed
-  1/4  JS 模块解析        21 files
+  1/4  JS 模块解析        24 files
   2/4  .jsx ES3 检查       3 files, 0 violations
   3/4  工具 Schema        17 tools, 0 invalid type
-  4/4  占位符扫描          20 files clean
+  4/4  占位符扫描          24 files clean
 ```
 
 ### 单元测试
 
 ```
-94 tests, 94 pass, 0 fail
+150 tests, 150 pass, 0 fail
   wav.test.mjs            21
   contact-sheet.test.mjs   8
   es3-guard.test.mjs      34
   effect-cache.test.mjs   13
   checkpoint.test.mjs     18
+  gate.test.mjs           27   门禁分类器（写模式 21 条 / 只读 6 条）
+  gate-tools.test.mjs     23   门禁接线 + guardScript 放行/拒绝 + ae_checkpoint 语义
+  compose-gate.test.mjs    6   两个建片入口分别拦
 ```
+
+门禁测试有两条是刻意反过来钉的：
+
+- **空的工程不备份** —— 否则每次建片都复制一次工程，"保护"变成噪音。
+- **探测失败按有内容处理** —— bridge 读不到状态时必须拒绝，而不是当成"没有东西可毁"。
+
+分类器也钉了两个方向，两个都严重：
+
+- **漏判写操作** = 无保护执行。`layer.source = f`、`comp.frameRate = 60`、`layer.moveTo(1)` 这些赋值型修改，第一版全部漏了。
+- **误判只读** = 每次读取都复制工程。`\s*=` 会把 `layer.source === null` 判成写操作，修法是断言后面不许是 `=`。
+
+`ae_run_script` 的规则也因此分成两种：**写脚本备份不成就不执行**，**读脚本照常放行**——拦一个毁不掉任何东西的读取，只会教会使用者随手声明 `readOnly`。
 
 ### AE 实机集成（AE 27.0x78 / Windows）
 
@@ -120,7 +136,27 @@ npm run build   → passed
 | 图片是否进入模型视觉上下文 | **否**。工具结果只带文本；返回 `imageInContext: false` 并提示调 `read_image` |
 | 音频峰值是否来自原始波形 | **是**。Node 直接解析 WAV PCM 采样，不再读 Audio Levels |
 | 文字适配是否真实有效 | **是**，已实测表达式解析结果。但不支持旋转/缩放的复杂变换组合下的精确贴合 |
-| Checkpoint 是否有程序级强制 | **库层有**（`assertSafeToProceed` 会抛 `CHECKPOINT_REQUIRED`），但**尚未接到每个工具的 execute 里**——目前靠 system prompt 约束。这是本次未完成项 |
+| Checkpoint 是否有程序级强制 | **已接入**（3.0.1 补完）。`lib/gate.js` 把判定接到真实执行路径上：`ae_compose` / `ae_template` 的建片门禁、`ae_run_script` 的写操作门禁、`ae_checkpoint` 的跨工程恢复拒绝。备份必须通过校验才算数，无法备份时**拒绝执行**而不是裸跑。见下方「3.0.1 补完项」 |
+
+### 3.0.1 补完项：门禁从"库层能力"变成"执行路径"
+
+上一版把门禁写成 `assertSafeToProceed` 这个函数就停手了——一个在执行前没被调用的门禁只是建议。本轮补齐的是**调用点**：
+
+| 路径 | 为什么必须拦 | 现在的行为 |
+| :--- | :--- | :--- |
+| `ae_compose` 建同名合成 | `buildScene` 默认 `replace !== false`，会**删掉旧合成** | 先查工程里是否真有同名合成；有则新建并校验备份，失败则拒绝 |
+| `ae_compose` 的 `resetProject` | 清空整个工程 | 同上；空工程放行（没有可毁内容），未保存工程直接拒绝 |
+| `ae_template` | 走的是**同一条** `buildScene` 路径 | 与 `ae_compose` 完全同一道门，不是绕过通道 |
+| `ae_run_script` | 唯一能执行任意 ExtendScript 的入口 | **写脚本**命中写模式 → 先备份，备份不成则拒绝执行；**读脚本**放行（未保存工程里读版本号不会被挡） |
+| `ae_checkpoint action=restore` | 恢复别的工程的备份会把当前工作整个换掉 | 校验归属 + 目标完整性 + 恢复前安全备份 + 恢复后核对文件一致 |
+| `ae_checkpoint action=list` | 旧实现会顺手 `app.project.save()` | 只读目录，绝不触发保存 |
+
+判定原则有两条是刻意的：
+
+1. **空的工程不备份**。建第一个合成不该复制一次工程文件；保护一旦变成噪音就会被绕过。
+2. **探测失败按"有内容"处理**。`pro:projectStatus` 读不到时，`compNames` 返回 `null` 而不是 `[]`——"未知"不能当成"没有东西可毁"。
+
+校验不可省：备份文件必须存在、≥1KB、前四字节是 `RIFX`/`AEGP`/`RIFF`，否则抛 `CHECKPOINT_INVALID`。测试里的假 bridge 交出的也是**磁盘上真实存在**的 `.aep`，假路径只能证明校验可被绕过。
 
 ### 时间重映射
 
