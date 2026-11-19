@@ -1211,9 +1211,345 @@ var DSH_PRO = (function () {
     return result === undefined ? null : result;
   }
 
+  /* --------------------------------- J. query / set / animate / layers */
+
+  /**
+   * Read one property, resolving nested groups by matchName or index path.
+   * `path` is a dotted matchName chain, e.g.
+   *   "ADBE Transform Group.ADBE Position"
+   */
+  function readProperty(payload) {
+    var opts = payload || {};
+    var layer = resolveLayer(opts);
+    var path = String(opts.path || opts.matchName || '');
+    if (path === '') throw new Error('path (or matchName) is required');
+
+    var node = layer;
+    var segs = path.split('.');
+    for (var i = 0; i < segs.length; i++) {
+      var seg = segs[i];
+      if (/^\d+$/.test(seg)) node = node.property(Number(seg));
+      else node = node.property(seg);
+      if (!node) throw new Error('property not found at segment "' + seg + '" of ' + path);
+    }
+
+    var atTime = (opts.time !== undefined && opts.time !== null) ? Number(opts.time) : null;
+    var custom = isCustom(node);
+    var out = {
+      layer: { id: layer.id, index: layer.index, name: layer.name },
+      property: { name: node.name, matchName: node.matchName, propertyIndex: node.propertyIndex },
+      propertyType: propTypeName(node),
+      valueType: valueTypeName(node),
+      customValue: custom,
+      canSetExpression: false,
+      isTimeVarying: false,
+      numKeys: 0,
+      value: null
+    };
+    try { out.canSetExpression = !!node.canSetExpression; } catch (e1) {}
+    try { out.isTimeVarying = !!node.isTimeVarying; } catch (e2) {}
+    try { out.numKeys = node.numKeys || 0; } catch (e3) {}
+
+    if (!custom) {
+      try {
+        out.value = atTime === null ? safeValue(node) : sanitizeAtTime(node, atTime);
+      } catch (e4) {}
+    } else {
+      out.note = 'CUSTOM_VALUE: opaque binary property, read-only';
+    }
+
+    if (out.numKeys > 0) {
+      var times = [];
+      var count = Math.min(out.numKeys, opts.maxKeys ? Number(opts.maxKeys) : 200);
+      for (var k = 1; k <= count; k++) {
+        var rec = { key: k };
+        try { rec.time = node.keyTime(k); } catch (e5) {}
+        try { rec.value = safeKeyValue(node, k); } catch (e6) {}
+        times.push(rec);
+      }
+      out.keyframes = times;
+    }
+
+    return out;
+  }
+
+  function sanitizeAtTime(node, t) {
+    var vt = node.propertyValueType;
+    if (vt === PropertyValueType.CUSTOM_VALUE) return null;
+    var v = node.valueAtTime(t, false);
+    if (v instanceof Array) {
+      var a = [];
+      for (var i = 0; i < v.length; i++) a.push(v[i]);
+      return a;
+    }
+    return v;
+  }
+
+  function safeKeyValue(node, k) {
+    try {
+      var vt = node.propertyValueType;
+      if (vt === PropertyValueType.CUSTOM_VALUE) return null;
+      var v = node.keyValue(k);
+      if (v instanceof Array) {
+        var a = [];
+        for (var i = 0; i < v.length; i++) a.push(v[i]);
+        return a;
+      }
+      return v;
+    } catch (e) { return null; }
+  }
+
+  /**
+   * Write one property. Refuses CUSTOM_VALUE: assigning it silently corrupts a
+   * third-party effect's binary state, which is far worse than an error.
+   */
+  function writeProperty(payload) {
+    var opts = payload || {};
+    var layer = resolveLayer(opts);
+    var path = String(opts.path || opts.matchName || '');
+    if (path === '') throw new Error('path (or matchName) is required');
+
+    var node = layer;
+    var segs = path.split('.');
+    for (var i = 0; i < segs.length; i++) {
+      var seg = segs[i];
+      node = /^\d+$/.test(seg) ? node.property(Number(seg)) : node.property(seg);
+      if (!node) throw new Error('property not found at segment "' + seg + '" of ' + path);
+    }
+
+    if (isCustom(node)) {
+      throw new Error('refusing to write CUSTOM_VALUE property "' + path
+        + '": it is an opaque binary attribute of a third-party effect. '
+        + 'Use an .ffx preset, or set the readable parameters around it.');
+    }
+
+    var before = safeValue(node);
+    var atTime = (opts.time !== undefined && opts.time !== null) ? Number(opts.time) : null;
+
+    if (opts.expression !== undefined && opts.expression !== null) {
+      if (typeof node.expression === 'undefined') {
+        throw new Error('property does not support expressions: ' + path);
+      }
+      node.expression = String(opts.expression);
+      try { node.expressionEnabled = true; } catch (e1) {}
+      return {
+        layer: { id: layer.id, name: layer.name },
+        property: { name: node.name, matchName: node.matchName },
+        expression: String(opts.expression),
+        previous: before
+      };
+    }
+
+    if (opts.value === undefined) throw new Error('value or expression is required');
+
+    if (atTime === null) node.setValue(opts.value);
+    else node.setValueAtTime(atTime, opts.value);
+
+    return {
+      layer: { id: layer.id, name: layer.name },
+      property: { name: node.name, matchName: node.matchName },
+      before: before,
+      after: safeValue(node),
+      atTime: atTime
+    };
+  }
+
+  /**
+   * Keyframe a property with real easing.
+   *
+   * The default interpolation in After Effects is linear; a commercial template
+   * needs a curve. `ease` accepts linear / in / out / both or an explicit
+   * influence number, and `setTemporalEaseAtKey` is applied to every key.
+   */
+  function animateProperty(payload) {
+    var opts = payload || {};
+    var layer = resolveLayer(opts);
+    var path = String(opts.path || opts.matchName || '');
+    if (path === '') throw new Error('path (or matchName) is required');
+
+    var node = layer;
+    var segs = path.split('.');
+    for (var i = 0; i < segs.length; i++) {
+      var seg = segs[i];
+      node = /^\d+$/.test(seg) ? node.property(Number(seg)) : node.property(seg);
+      if (!node) throw new Error('property not found at segment "' + seg + '" of ' + path);
+    }
+    if (isCustom(node)) throw new Error('refusing to keyframe CUSTOM_VALUE property: ' + path);
+
+    var keys = opts.keys;
+    if (!keys || !(keys instanceof Array) || keys.length === 0) {
+      throw new Error('keys must be a non-empty array of { time, value }');
+    }
+
+    var easeName = opts.ease === undefined ? 'both' : String(opts.ease);
+    var easeConf = parseEase(easeName);
+    var dim = propertyDim(node);
+    var written = [];
+
+    for (var k = 0; k < keys.length; k++) {
+      var key = keys[k];
+      var t = Number(key.time);
+      if (!isFinite(t)) throw new Error('keys[' + k + '].time must be a number');
+      var v = coerceValue(key.value, dim, node);
+      node.setValueAtTime(t, v);
+      written.push({ time: t, value: v });
+    }
+
+    var applied = 0;
+    if (!easeConf.linear) {
+      for (var j = 0; j < written.length; j++) {
+        var idx = node.nearestKeyIndex(written[j].time);
+        try {
+          node.setTemporalEaseAtKey(idx, easeArrayFor(dim, easeConf.inInf), easeArrayFor(dim, easeConf.outInf));
+          applied++;
+        } catch (e2) {}
+      }
+    }
+
+    return {
+      layer: { id: layer.id, name: layer.name },
+      property: { name: node.name, matchName: node.matchName },
+      keys: written.length,
+      ease: easeName,
+      easeApplied: applied,
+      totalKeys: (function () { try { return node.numKeys; } catch (e3) { return written.length; } })()
+    };
+  }
+
+  function propertyDim(node) {
+    try {
+      var v = node.value;
+      return (v instanceof Array) ? v.length : 1;
+    } catch (e) { return 1; }
+  }
+
+  function coerceValue(value, dim, node) {
+    if (value instanceof Array) {
+      var out = [];
+      for (var i = 0; i < dim; i++) out.push(value[i] === undefined ? 0 : value[i]);
+      return out;
+    }
+    if (dim === 1) return value;
+    var uni = [];
+    for (var j = 0; j < dim; j++) uni.push(value);
+    return uni;
+  }
+
+  function parseEase(name) {
+    var k = String(name || 'both').toLowerCase();
+    if (k === 'linear' || k === 'none') return { linear: true, inInf: 0.1, outInf: 0.1 };
+    if (k === 'in') return { linear: false, inInf: 0.1, outInf: 75 };
+    if (k === 'out') return { linear: false, inInf: 75, outInf: 0.1 };
+    if (k === 'both' || k === 'smooth') return { linear: false, inInf: 66, outInf: 66 };
+    if (k === 'hold') return { linear: true, inInf: 0.1, outInf: 0.1 };
+    var n = parseFloat(k);
+    if (isFinite(n)) {
+      var safe = n < 0.1 ? 0.1 : (n > 100 ? 100 : n);
+      return { linear: false, inInf: safe, outInf: safe };
+    }
+    return { linear: false, inInf: 66, outInf: 66 };
+  }
+
+  function easeArrayFor(dim, influence) {
+    var safe = influence < 0.1 ? 0.1 : (influence > 100 ? 100 : influence);
+    var out = [];
+    for (var i = 0; i < dim; i++) out.push(new KeyframeEase(0, safe));
+    return out;
+  }
+
+  /**
+   * Enumerate layers with stable ids.
+   *
+   * `id` is the durable handle: it survives renames and re-stacking, which an
+   * index does not. Every layer row carries the facts a caller needs before
+   * deciding to touch it.
+   */
+  function listLayers(payload) {
+    var opts = payload || {};
+    var comp = resolveComp(opts);
+    var rows = [];
+    var typeFilter = opts.type ? String(opts.type).toLowerCase() : null;
+    var nameFilter = opts.nameFilter ? String(opts.nameFilter).toLowerCase() : null;
+    var limit = opts.limit ? Math.max(1, Number(opts.limit)) : 10000;
+
+    for (var i = 1; i <= comp.numLayers && rows.length < limit; i++) {
+      var l = comp.layer(i);
+      var type = layerType(l);
+
+      if (typeFilter !== null && type !== typeFilter) continue;
+      if (nameFilter !== null && String(l.name).toLowerCase().indexOf(nameFilter) < 0) continue;
+
+      var rec = {
+        index: i,
+        id: l.id,
+        name: l.name,
+        type: type,
+        enabled: true,
+        solo: false,
+        locked: false,
+        threeD: false,
+        inPoint: 0,
+        outPoint: 0,
+        startTime: 0
+      };
+      try { rec.enabled = !!l.enabled; } catch (e1) {}
+      try { rec.solo = !!l.solo; } catch (e2) {}
+      try { rec.locked = !!l.locked; } catch (e3) {}
+      try { rec.threeD = !!l.threeDLayer; } catch (e4) {}
+      try { rec.inPoint = l.inPoint; rec.outPoint = l.outPoint; rec.startTime = l.startTime; } catch (e5) {}
+      try { rec.effects = l.property('ADBE Effect Parade').numProperties; } catch (e6) { rec.effects = 0; }
+      try { rec.parent = l.parent ? { id: l.parent.id, name: l.parent.name } : null; } catch (e7) { rec.parent = null; }
+      try { rec.source = l.source ? l.source.name : null; } catch (e8) {}
+
+      // Transform snapshot — the common case for a caller deciding what to change.
+      try {
+        var t = l.property('ADBE Transform Group');
+        rec.position = toArray(t.property('ADBE Position').value);
+        rec.scale = toArray(t.property('ADBE Scale').value);
+        rec.rotation = t.property('ADBE Rotate Z').value;
+        rec.opacity = t.property('ADBE Opacity').value;
+        rec.anchor = toArray(t.property('ADBE Anchor Point').value);
+      } catch (e9) {}
+
+      rows.push(rec);
+    }
+
+    return {
+      comp: { id: comp.id, name: comp.name, width: comp.width, height: comp.height,
+        duration: comp.duration, frameRate: comp.frameRate },
+      layerCount: comp.numLayers,
+      returned: rows.length,
+      layers: rows
+    };
+  }
+
+  function layerType(l) {
+    try {
+      if (l instanceof TextLayer) return 'text';
+      if (l instanceof ShapeLayer) return 'shape';
+      if (l instanceof CameraLayer) return 'camera';
+      if (l instanceof LightLayer) return 'light';
+      if (l.nullLayer === true) return 'null';
+      try { if (l.property('ADBE Audio Group')) return l.source ? 'av' : 'audio'; } catch (e0) {}
+      if (l.source) return 'footage';
+      return 'solid';
+    } catch (e) { return 'other'; }
+  }
+
+  function toArray(v) {
+    if (!(v instanceof Array)) return v;
+    var out = [];
+    for (var i = 0; i < v.length; i++) out.push(v[i]);
+    return out;
+  }
+
   /* ---------------------------------------------------------------- API */
 
   return {
+    readProperty: readProperty,
+    writeProperty: writeProperty,
+    animateProperty: animateProperty,
+    listLayers: listLayers,
     capabilities: capabilities,
     scanEffects: scanEffects,
     inspectEffectParams: inspectEffectParams,
