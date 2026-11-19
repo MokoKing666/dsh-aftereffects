@@ -54,7 +54,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/MokoKing666/dsh-aftereffects",
-            "commit": "PLACEHOLDER"
+            "commit": "8dc39871a8804e68d9de9934e1ba1db19b75bb1b"
           },
           "engines": {
             "dsh": ">=0.2.0-rc.2"
