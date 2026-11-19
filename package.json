@@ -1,6 +1,6 @@
 {
   "name": "dsh-aftereffects",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Commercial AE template toolkit: drive After Effects from DeepSeek Harness to build compositions, scan installed effects, inspect plugin parameters, capture previews, bind Essential Graphics controllers, mark audio beats, and snapshot projects before bulk edits.",
   "type": "module",
   "main": "index.js",
