@@ -20,6 +20,7 @@ import { ASPECT_NAMES, TEMPLATE_NAMES, THEME_NAMES, buildTemplate, templateCatal
 import { assertEs3 } from './lib/es3-guard.js'
 import { registerProTools } from './lib/pro-tools.js'
 import { defineToolSafe } from './lib/tool-def.js'
+import { assertSafeToProceed, listCheckpoints } from './lib/checkpoint.js'
 
 /** Identity shown in the plugin inventory. */
 export const name = 'dsh-aftereffects'
@@ -83,6 +84,25 @@ function summarizeRender(result) {
 
 const EMPTY_SCENE = {
   comp: '', id: 0, width: 0, height: 0, duration: 0, frameRate: 0, layerCount: 0, layers: [], saved: '',
+}
+
+/**
+ * Find the newest verified checkpoint for a project.
+ *
+ * The gate needs a file it can trust, so this reads the checkpoint directory
+ * and verifies each candidate rather than trusting a name.
+ */
+async function lastVerifiedCheckpoint(bridge, serial, projectPath) {
+  if (!projectPath) return null
+  try {
+    const status = await serial(() => bridge.runtime('pro:projectStatus', {}))
+    const dir = status?.checkpointDir ?? null
+    const listed = listCheckpoints(projectPath, dir ?? undefined)
+    const newest = listed.checkpoints.find((c) => c.verified)
+    return newest ? { path: newest.path, verified: true } : null
+  } catch {
+    return null
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -279,6 +299,23 @@ export function apply(ctx, config) {
       if (scene === null || typeof scene !== 'object' || Array.isArray(scene)) {
         return { ...EMPTY_SCENE, error: 'scene 必须是对象' }
       }
+
+      // Program-level gate, not a prompt suggestion: resetProject wipes the
+      // whole project, so it needs a verified checkpoint first.
+      if (scene.resetProject === true) {
+        try {
+          const gate = await serial(() => bridge.runtime('pro:projectStatus', {}))
+          assertSafeToProceed({
+            operation: 'resetProject',
+            projectPath: gate?.file ?? null,
+            lastCheckpoint: await lastVerifiedCheckpoint(bridge, serial, gate?.file ?? null),
+            context: { compCount: gate?.compCount ?? undefined },
+          })
+        } catch (error) {
+          return { ...EMPTY_SCENE, error: error.message }
+        }
+      }
+
       try {
         const built = await serial(() => bridge.runtime('buildScene', scene))
         let saved = ''
@@ -597,21 +634,32 @@ export function apply(ctx, config) {
       name: 'dsh-aftereffects',
       order: SECTION_ORDER,
       text: [
-        '本机已装 **dsh-aftereffects**（商业 AE 模板版）：用 `ae_*` 工具直接驱动 Adobe After Effects。',
+        '本机已装 **dsh-aftereffects**：用 `ae_*` 工具驱动 Adobe After Effects 做商业级模板。',
         '',
-        '**建片**：`ae_status` 看环境 → `ae_template`（title / lower-third / cta / logo-reveal / countdown / stat / quote / kinetic / end-card / particles / gradient）或 `ae_compose`（完整场景文档）建合成 → `ae_render` 出 MP4 / PNG 序列 / 静帧。',
-        '**第三方插件**：`ae_scan_effects` 拿 matchName → `ae_inspect_plugin_params` 看参数树 → 参数改不动就用 `ae_apply_ffx_preset` 挂 .ffx 预设。',
-        '**模板交付**：`ae_essential_graphics` 绑控制器并导出 .mogrt；`ae_checkpoint` 在批量改层前留备份；`ae_capture_preview` 截图自检。',
+        '**工作流**：`ae_status` 看环境 → `ae_template` / `ae_compose` 建合成 → `ae_render` 出片。',
+        '**读**：`ae_layers` 拿稳定 `Layer.id` → `ae_query` 按 matchName 点路径读值/关键帧。',
+        '**写**：`ae_set` 改值或挂表达式 → `ae_animate` 打关键帧（默认带贝塞尔缓动）。',
+        '**第三方插件**：`ae_scan_effects` 拿 matchName → `ae_inspect_plugin_params` 看参数树。',
+        '**交付**：`ae_auto_fit_text` 做自适应底栏 → `ae_essential_graphics` 绑控制器 → `ae_audio_markers` 卡点。',
         '',
-        '### 商业模板开发硬约束（必须遵守）',
-        '1. **100% ES3**。脚本与表达式禁用 const / let / 箭头函数 / 模板字符串 / class / 解构 / for-of / async。`ae_run_script` 会在发送前拦截并给出精确行号——被拦下就按提示改写成 var + function，不要试图绕过。',
-        '2. **第三方插件先核对再动手**。调用任何非原生特效前，先 `ae_scan_effects` 确认 matchName，再 `ae_inspect_plugin_params` 确认参数索引。**`customValue=true` 的参数是 CUSTOM_VALUE 二进制黑盒，严禁赋值**，只能改用 .ffx 预设或放弃脚本化。改参数优先用 `propertyIndex` 或 `matchName`，绝不用中文显示名。',
-        '3. **文字底栏/字幕框必须自适应**。给字幕背景注入 `sourceRectAtTime()` 边界表达式，让框跟着文字长宽走，禁止写死固定宽高导致溢出。',
-        '4. **禁止默认线性关键帧**。必须用 `setTemporalEaseAtKey()` 设置平滑贝塞尔缓动，或挂弹性/阻尼表达式；`ae_compose` 的 `animate.ease` 至少给 `out` 或 `both`。',
-        '5. **重活之后必须自检**。挂完重型视觉特效或排完核心版式，调 `ae_capture_preview`（建议 longEdge≈640）截图，检查文字溢出、粒子/辉光过曝、构图穿帮，有问题就修。',
-        '6. **破坏性批量操作前先 `ae_checkpoint`**，避免把用户原工程改崩。',
+        '### 硬约束（会被程序拦截，不是建议）',
+        '1. **ES3 only**。脚本与表达式都用 `var` + `function`；禁 const / let / 箭头 / 模板字符串 / class / 解构 / for-of / async。`ae_run_script` 与 `ae_set` 的表达式都会在发送前预检，被拦下就按报的行列号改写，不要绕。',
+        '2. **`CUSTOM_VALUE` 禁止写入**。`ae_inspect_plugin_params` 里 `customValue: true` 的参数是第三方插件的二进制黑盒，`ae_set` 会直接拒绝。只能改用周边可读参数，或让用户在交互式 AE 里调。',
+        '3. **属性寻址**：用完整 matchName 路径（如 `ADBE Transform Group.ADBE Position`）或 `propertyIndex`，**绝不用中文显示名**——显示名随 AE 语言变化。`propertyIndex` 是相对父组的，必须配合 `path` 使用。',
+        '4. **字幕框自适应**用 `ae_auto_fit_text`（真实 `sourceRectAtTime()` + `toComp/fromComp` 坐标换算）。**只用于需要自适应的字幕/底栏**；用户明确要固定尺寸时不要强加。禁止写死宽高伪装自适应。',
+        '5. **动画默认加缓动**：`ae_animate` 的 `ease` 至少给 `out` 或 `both`。**但用户明确要线性动画时照做**——规则是默认值，不是禁令。',
+        '6. **高风险操作先 checkpoint**：`resetProject`、删合成、批量删层、批量清效果、替换素材等。程序级门禁会拒绝没有已验证备份的这类操作。',
+        '7. **视觉自检**：挂完重型特效或排完版，用 `ae_capture_preview` 截图（建议 longEdge≈640，多帧用 `count`）。',
         '',
-        'After Effects 无界面实例与用户开着的 AE 窗口冲突：若启动超时，先关掉 AE 窗口再重试。',
+        '### 关于"看图"的诚实说明',
+        '`ae_capture_preview` 返回的是**图片文件路径**，图像不会自动进入你的视觉上下文。'
+          + '你需要主动调用 `read_image`（传入该路径）才能真正看到画面；如果没有调用，**不要声称你已经完成了视觉检查**。',
+        '',
+        '### 已知不可用（会明确报错，不要反复尝试）',
+        '- `.ffx` 预设应用（`ae_apply_ffx_preset` 的 presetPath）：无界面实例会终止 AE 进程，工具会先检测并拒绝。替代：`ae_run_script` 按 propertyIndex 挂效果设参数。',
+        '- `.mogrt` 导出：同上。控制器可以绑，导出需用户在交互式 AE 里做（窗口 → 基本图形 → 导出动态图形模板）。',
+        '',
+        '无界面实例与用户开着的 AE 窗口冲突：启动超时就先关掉 AE 窗口。',
       ].join('\n'),
     }))
   }

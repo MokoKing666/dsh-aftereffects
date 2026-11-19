@@ -1,5 +1,5 @@
 /* ============================================================================
- * dsh-aftereffects — pro template capability pack
+ * dsh-aftereffects 鈥?pro template capability pack
  * ----------------------------------------------------------------------------
  * Everything a commercial AE template workflow needs, layered on top of the
  * existing runtime. Still ES3 ExtendScript: no const/let/arrows/templates.
@@ -107,7 +107,7 @@ var DSH_PRO = (function () {
 
   /**
    * Enumerate every effect installed for this After Effects installation,
-   * native and third-party alike (Particular, Deep Glow, Saber, Element 3D…).
+   * native and third-party alike (Particular, Deep Glow, Saber, Element 3D鈥?.
    * `app.effects` is the only API that reports the installed set; display names
    * are localised, matchNames are not, so the mapping is the whole point.
    */
@@ -159,21 +159,13 @@ var DSH_PRO = (function () {
       if (rows.length >= limit) break;
     }
 
-    // Third-party effects are the practical reason this exists; flag them so a
-    // model can tell "installed plugin" from "ships with AE" at a glance.
-    var thirdParty = [];
-    for (var j = 0; j < rows.length; j++) {
-      var r = rows[j];
-      var isAdobe = /^ADBE /.test(r.matchName) || /^CC /.test(r.matchName);
-      r.thirdParty = !isAdobe && r.matchName !== '';
-      if (r.thirdParty) thirdParty.push(r);
-    }
-
+    // Vendor is decided on the Node side, where the classification table lives.
+    // This side only reports the raw facts 鈥?guessing "not ADBE/CC therefore
+    // third-party" is how effects that ship with AE got labelled third-party.
     return {
       total: total,
       returned: rows.length,
       skippedObsolete: skippedObsolete,
-      thirdPartyCount: thirdParty.length,
       query: opts.query || null,
       effects: rows
     };
@@ -207,88 +199,125 @@ var DSH_PRO = (function () {
   }
 
   /**
+   * Read one property row, recursing into any nested group.
+   *
+   * `propertyIndex` is one-based *within its parent group*, so it is only
+   * meaningful together with `path` (the matchName chain from the effect root)
+   * 鈥?both are always reported. Recursion is bounded so a pathological tree
+   * cannot hang the daemon.
+   */
+  function describeProperty(p, index, parentPath, depth, maxDepth) {
+    var row = {
+      propertyIndex: index,
+      name: p.name,
+      matchName: p.matchName,
+      path: parentPath === '' ? p.matchName : parentPath + '.' + p.matchName,
+      propertyType: propTypeName(p),
+      valueType: valueTypeName(p)
+    };
+
+    var custom = isCustom(p);
+    row.customValue = custom;
+    if (custom) {
+      // The binary payload is not read, not serialised, not writable. Saying so
+      // in the row is the whole contract.
+      row.writable = false;
+      row.animatable = false;
+      row.reason = 'CUSTOM_VALUE is an opaque binary property of a third-party effect; '
+        + 'it has no scriptable value. Use an .ffx preset or set the readable parameters around it.';
+      return row;
+    }
+
+    row.writable = true;
+
+    try { row.canSetExpression = !!p.canSetExpression; } catch (e1) {}
+    try { row.animatable = !!(p.isTimeVarying || p.canVaryOverTime); } catch (e2) {
+      try { row.animatable = !!p.isTimeVarying; } catch (e3) {}
+    }
+    try { row.isTimeVarying = !!p.isTimeVarying; } catch (e4) {}
+    try { row.numKeys = p.numKeys || 0; } catch (e5) {}
+    try { row.canAddToEGP = typeof p.canAddToMotionGraphicsTemplate === 'function'; } catch (e6) {}
+
+    var v = safeValue(p);
+    if (v !== null && v !== undefined) row.value = v;
+
+    // Dropdown / menu parameters. Two APIs exist: older builds expose a
+    // PropertyGroup through `propertyParameters()`, while AE 26+ can expose a
+    // string array. Whichever shape turns up is handled, and the shape is
+    // reported so a caller knows which it got.
+    try {
+      if (typeof p.getPropertyParameters === 'function') {
+        var params = p.getPropertyParameters();
+        if (params) {
+          if (params instanceof Array) {
+            row.menuItems = params.map(function (name, i) { return { index: i + 1, name: String(name) }; });
+            row.menuShape = 'array';
+          } else if (typeof params.numProperties === 'number') {
+            var items = [];
+            for (var m = 1; m <= params.numProperties; m++) {
+              items.push({ index: m, name: params.property(m).name });
+            }
+            if (items.length > 0) {
+              row.menuItems = items;
+              row.menuShape = 'group';
+            }
+          }
+        }
+      }
+    } catch (e7) {}
+    if (!row.menuItems) {
+      try {
+        var direct = p.propertyParameters;
+        if (direct && direct instanceof Array && direct.length > 0) {
+          row.menuItems = direct.map(function (name, i) { return { index: i + 1, name: String(name) }; });
+          row.menuShape = 'array';
+        }
+      } catch (e8) {}
+    }
+
+    // Recurse into groups. INDEXED_GROUP / NAMED_GROUP are containers; a
+    // PROPERTY can still be a group in a few effect families, so the numeric
+    // check is the real test.
+    var childCount = 0;
+    try { childCount = p.numProperties || 0; } catch (e9) { childCount = 0; }
+    if (childCount > 0 && depth < maxDepth && p.propertyType !== PropertyType.PROPERTY) {
+      var children = [];
+      for (var c = 1; c <= childCount; c++) {
+        var cp = null;
+        try { cp = p.property(c); } catch (e10) { cp = null; }
+        if (!cp) continue;
+        children.push(describeProperty(cp, c, row.path, depth + 1, maxDepth));
+      }
+      if (children.length > 0) row.children = children;
+    }
+
+    return row;
+  }
+
+  /**
    * Read one effect's full parameter tree.
    *
    * Every row carries the numeric `propertyIndex` (the only stable handle
    * across a localised After Effects), the parameter `matchName`, its value
-   * type, and an explicit `customValue` flag. Dropdown menus list their items
-   * so a model can pick an index instead of guessing an English label.
+   * type, the full matchName path from the effect root, and an explicit
+   * `customValue` flag with the reason it cannot be written.
    */
   function inspectEffectParams(payload) {
     var opts = payload || {};
     var layer = resolveLayer(opts);
     var fx = findEffect(layer, opts);
+    var maxDepth = opts.maxDepth ? Math.max(1, Math.min(12, Number(opts.maxDepth))) : 8;
 
     var rows = [];
     var customCount = 0;
     var count = fx.numProperties;
+    var rootPath = '';
 
     for (var i = 1; i <= count; i++) {
       var p = fx.property(i);
       if (!p) continue;
-
-      var row = {
-        propertyIndex: i,
-        name: p.name,
-        matchName: p.matchName,
-        propertyType: propTypeName(p),
-        valueType: valueTypeName(p)
-      };
-
-      var custom = isCustom(p);
-      row.customValue = custom;
-      if (custom) {
-        customCount++;
-        row.note = 'CUSTOM_VALUE: opaque binary property. Never assign a value from a script.';
-      }
-
-      try { row.canSetExpression = !!p.canSetExpression; } catch (e1) {}
-      try { row.isTimeVarying = !!p.isTimeVarying; } catch (e2) {}
-
-      if (!custom) {
-        var v = safeValue(p);
-        if (v !== null && v !== undefined) row.value = v;
-      }
-
-      // Dropdown / menu parameters report their legal item list.
-      try {
-        if (p.propertyType === PropertyType.PROPERTY && p.value !== undefined) {
-          var menu = null;
-          if (typeof p.getPropertyParameters === 'function') {
-            menu = p.getPropertyParameters();
-          }
-          if (menu && menu.numProperties > 0) {
-            var items = [];
-            for (var m = 1; m <= menu.numProperties; m++) {
-              items.push({ index: m, name: menu.property(m).name });
-            }
-            row.menuItems = items;
-          }
-        }
-      } catch (e3) {}
-
-      // Composite groups (points, colors) are themselves a tree.
-      if (p.propertyType === PropertyType.INDEXED_GROUP || p.propertyType === PropertyType.NAMED_GROUP) {
-        var children = [];
-        for (var c = 1; c <= p.numProperties; c++) {
-          var cp = p.property(c);
-          if (!cp) continue;
-          var crow = {
-            propertyIndex: c,
-            name: cp.name,
-            matchName: cp.matchName,
-            valueType: valueTypeName(cp),
-            customValue: isCustom(cp)
-          };
-          if (!crow.customValue) {
-            var cv = safeValue(cp);
-            if (cv !== null && cv !== undefined) crow.value = cv;
-          }
-          children.push(crow);
-        }
-        row.children = children;
-      }
-
+      var row = describeProperty(p, i, rootPath, 0, maxDepth);
+      if (row.customValue) customCount++;
       rows.push(row);
     }
 
@@ -297,8 +326,9 @@ var DSH_PRO = (function () {
       effect: { name: fx.name, matchName: fx.matchName, propertyIndex: fx.propertyIndex },
       parameterCount: rows.length,
       customValueCount: customCount,
+      maxDepth: maxDepth,
       warning: customCount > 0
-        ? customCount + ' parameter(s) are CUSTOM_VALUE and must not be assigned by script.'
+        ? customCount + ' parameter(s) are CUSTOM_VALUE and cannot be read or written by script.'
         : null,
       parameters: rows
     };
@@ -309,7 +339,7 @@ var DSH_PRO = (function () {
   /**
    * ExtendScript reports `Folder.name` / `File.name` URL-encoded:
    * "After%20Effects%202026", "%E5%BC%B9%E5%85%A5.ffx". Every name comparison
-   * and every display string has to decode first — this one helper is the
+   * and every display string has to decode first 鈥?this one helper is the
    * difference between discovering the presets and silently finding nothing.
    */
   function decodedName(entry) {
@@ -465,7 +495,7 @@ var DSH_PRO = (function () {
    * Apply an `.ffx` preset.
    *
    * `layer.applyPreset()` needs an interactive AE. Measured on AE 27.0x78 in
-   * `-noui` mode it terminates the process outright — no exception, no return.
+   * `-noui` mode it terminates the process outright 鈥?no exception, no return.
    * The host is therefore asked up front whether presets are usable, and a
    * negative answer becomes a clear, actionable error instead of a crash the
    * caller has to diagnose from a vanished heartbeat.
@@ -568,7 +598,7 @@ var DSH_PRO = (function () {
       var l = probe.layers.addNull();
       try {
         out.applyPreset.present = typeof l.applyPreset === 'function';
-        // Present but not usable headless — measured, not guessed.
+        // Present but not usable headless 鈥?measured, not guessed.
         out.applyPreset.usable = false;
         out.applyPreset.reason = out.applyPreset.present
           ? 'applyPreset() terminates a -noui instance (measured on AE 27); use an interactive AE, '
@@ -584,7 +614,7 @@ var DSH_PRO = (function () {
         out.exportMogrt.reason = out.exportMogrt.present
           ? 'exportAsMotionGraphicsTemplate() terminates a -noui instance (measured on AE 27); '
             + 'bind the controllers here, then export the .mogrt from an interactive After Effects '
-            + '(File > Export > "Template…").'
+            + '(File > Export > "Template鈥?).'
           : 'exportAsMotionGraphicsTemplate() is not available in this After Effects version.';
       } catch (e2) {}
 
@@ -641,7 +671,7 @@ var DSH_PRO = (function () {
   /**
    * Render one frame to PNG.
    *
-   * `resolutionFactor` is the cost lever — a model judging layout rarely needs
+   * `resolutionFactor` is the cost lever 鈥?a model judging layout rarely needs
    * full resolution. `soloLayerId` isolates a layer so "why is this invisible"
    * becomes answerable; every solo flag is restored afterwards.
    */
@@ -840,7 +870,7 @@ var DSH_PRO = (function () {
     var returned = comp.exportAsMotionGraphicsTemplate(opts.overwrite === true, f.fsName);
 
     // The export writes asynchronously and its boolean return is not a success
-    // signal — it reports true before (or without) producing a file. Poll for a
+    // signal 鈥?it reports true before (or without) producing a file. Poll for a
     // real, non-empty file and let that decide.
     var waited = waitFile(out, opts.timeoutMs ? Number(opts.timeoutMs) : 30000);
     var info = new File(out);
@@ -862,116 +892,116 @@ var DSH_PRO = (function () {
   /* ------------------------------------------------------------ F. audio */
 
   /**
-   * Analyse an audio layer's waveform and drop markers on the loudest peaks.
-   * `audioLevels` is a two-channel property sampled per frame; a peak is a
-   * local maximum above the mean plus a sensitivity factor.
+   * Report where an audio layer's samples come from and how its time maps.
+   *
+   * The Node side needs the *file* so it can read real samples; AE only knows
+   * the footage reference. Everything here is a fact AE can state, not a
+   * measurement: the waveform itself is analysed outside this process.
    */
-  function audioMarkers(payload) {
+  function audioSource(payload) {
     var opts = payload || {};
     var layer = resolveLayer(opts);
-    var comp = layer.containingComp;
 
-    var prop = null;
-    try { prop = layer.property('ADBE Audio Group').property('ADBE Audio Levels'); } catch (e0) { prop = null; }
-    if (!prop) throw new Error('layer has no audio levels: ' + layer.name);
-
-    var fps = comp.frameRate;
-    var start = Math.max(0, layer.inPoint);
-    var end = Math.min(comp.duration, layer.outPoint);
-    var step = 1 / fps;
-    var samples = [];
-
-    for (var t = start; t <= end; t += step) {
-      var v = null;
-      try { v = prop.valueAtTime(t, false); } catch (e1) { v = null; }
-      if (!v || v.length === 0) continue;
-      var peak = Math.abs(v[0]);
-      if (v.length > 1 && Math.abs(v[1]) > peak) peak = Math.abs(v[1]);
-      samples.push({ time: t, level: peak });
-    }
-    if (samples.length === 0) throw new Error('no audio samples read');
-
-    var sum = 0;
-    var loudest = 0;
-    for (var i = 0; i < samples.length; i++) {
-      sum += samples[i].level;
-      if (samples[i].level > loudest) loudest = samples[i].level;
-    }
-    var mean = sum / samples.length;
-
-    // A silent or audio-less track reports level 0 everywhere. Without this
-    // guard the "local maximum above threshold" test matches every frame and
-    // the caller is told it found beats that do not exist.
-    if (loudest < 0.001) {
-      return {
-        layer: { id: layer.id, name: layer.name },
-        comp: comp.name,
-        sampledFrames: samples.length,
-        meanLevel: 0,
-        threshold: 0,
-        peaksFound: 0,
-        markersPlaced: 0,
-        markerTarget: opts.onComp === false ? 'layer' : 'comp',
-        silent: true,
-        times: [],
-        note: 'no audible signal on this layer (all levels are zero); nothing marked'
-      };
+    var source = null;
+    try { source = layer.source; } catch (e0) { source = null; }
+    if (!source) {
+      return { sourcePath: null, reason: 'layer has no footage source (a solid or text layer has no audio file)' };
     }
 
-    var sensitivity = opts.sensitivity === undefined ? 1.5 : Number(opts.sensitivity);
-    var minGap = opts.minGap === undefined ? 0.18 : Number(opts.minGap);
-    // Bound the threshold away from zero: a mean of 0.0001 multiplied by 1.5 is
-    // still below any real peak, but a mean of 0 would admit silence.
-    var threshold = Math.max(mean * sensitivity, loudest * 0.15);
+    var path = null;
+    try { path = source.file ? source.file.fsName : null; } catch (e1) { path = null; }
 
-    var peaks = [];
-    var lastTime = -999;
-    for (var j = 1; j < samples.length - 1; j++) {
-      var s = samples[j];
-      if (s.level < threshold) continue;
-      if (s.level < samples[j - 1].level || s.level < samples[j + 1].level) continue;
-      if (s.time - lastTime < minGap) continue;
-      peaks.push(s);
-      lastTime = s.time;
-    }
+    var mapping = {
+      inPoint: 0,
+      outPoint: 0,
+      startTime: 0,
+      stretch: 100,
+      duration: 0,
+      compFrameRate: 0
+    };
+    try {
+      mapping.inPoint = layer.inPoint;
+      mapping.outPoint = layer.outPoint;
+      mapping.startTime = layer.startTime;
+      mapping.stretch = layer.stretch;
+      mapping.duration = layer.outPoint - layer.inPoint;
+      mapping.compFrameRate = layer.containingComp.frameRate;
+    } catch (e2) {}
 
-    var maxMarkers = opts.maxMarkers ? Math.max(1, Math.min(500, opts.maxMarkers)) : 60;
-    if (peaks.length > maxMarkers) {
-      peaks.sort(function (a, b) { return b.level - a.level; });
-      peaks = peaks.slice(0, maxMarkers);
-      peaks.sort(function (a, b) { return a.time - b.time; });
-    }
+    // Time remapping and reversal change the mapping in ways this tool does not
+    // claim to model. Saying so is better than writing markers at wrong times.
+    var remapped = false;
+    try { remapped = layer.timeRemapEnabled === true; } catch (e3) { remapped = false; }
 
-    var placed = 0;
-    var target = opts.onComp === false ? layer : comp.markerProperty;
-    if (opts.clearExisting === true) {
-      try {
-        while (target.numKeys > 0) target.removeKey(1);
-      } catch (e2) {}
-    }
-    for (var k = 0; k < peaks.length; k++) {
-      var mv = new MarkerValue('beat ' + (k + 1));
-      mv.duration = 0;
-      try {
-        target.setValueAtTime(peaks[k].time, mv);
-        placed++;
-      } catch (e3) {}
-    }
+    var hasAudio = false;
+    try {
+      var ag = layer.property('ADBE Audio Group');
+      hasAudio = !!ag;
+    } catch (e4) { hasAudio = false; }
 
     return {
       layer: { id: layer.id, name: layer.name },
-      comp: comp.name,
-      sampledFrames: samples.length,
-      meanLevel: Math.round(mean * 10000) / 10000,
-      threshold: Math.round(threshold * 10000) / 10000,
-      peaksFound: peaks.length,
-      markersPlaced: placed,
-      markerTarget: opts.onComp === false ? 'layer' : 'comp',
-      times: (function () {
-        var out = [];
-        for (var m = 0; m < peaks.length; m++) out.push(Math.round(peaks[m].time * 1000) / 1000);
-        return out;
-      })()
+      sourcePath: path,
+      sourceName: source.name,
+      sourceDuration: (function () { try { return source.duration; } catch (e5) { return 0; } })(),
+      hasAudio: hasAudio,
+      timeRemapEnabled: remapped,
+      timeMapping: mapping,
+      note: remapped
+        ? 'time remapping is enabled; marker times are computed from the plain inPoint/startTime/stretch mapping '
+          + 'and may not match what you see for a remapped layer'
+        : null
+    };
+  }
+
+  /**
+   * Write markers at the given comp times.
+   *
+   * Existing markers are preserved unless `clearExisting` is true 鈥?destroying a
+   * user's edit markers as a side effect of adding beats is not acceptable.
+   */
+  function writeMarkers(payload) {
+    var opts = payload || {};
+    var layer = resolveLayer(opts);
+    var comp = layer.containingComp;
+    var times = opts.times;
+    if (!times || !(times instanceof Array) || times.length === 0) {
+      throw new Error('times must be a non-empty array');
+    }
+
+    var target = opts.onComp === false ? layer.markerProperty : comp.markerProperty;
+    var cleared = 0;
+    if (opts.clearExisting === true) {
+      try {
+        while (target.numKeys > 0) {
+          target.removeKey(1);
+          cleared++;
+        }
+      } catch (e1) {}
+    }
+
+    var placed = 0;
+    var failed = [];
+    for (var i = 0; i < times.length; i++) {
+      var t = Number(times[i]);
+      if (!isFinite(t)) { failed.push({ index: i, reason: 'not a number' }); continue; }
+      if (t < 0 || t > comp.duration) { failed.push({ index: i, time: t, reason: 'outside comp duration' }); continue; }
+      try {
+        var mv = new MarkerValue('beat ' + (i + 1));
+        mv.duration = 0;
+        target.setValueAtTime(t, mv);
+        placed++;
+      } catch (e2) {
+        failed.push({ index: i, time: t, reason: String(e2) });
+      }
+    }
+
+    return {
+      placed: placed,
+      cleared: cleared,
+      failed: failed,
+      target: opts.onComp === false ? 'layer' : 'comp',
+      totalMarkers: (function () { try { return target.numKeys; } catch (e3) { return placed; } })()
     };
   }
 
@@ -981,7 +1011,7 @@ var DSH_PRO = (function () {
    * Save the project and copy the .aep to a timestamped path.
    *
    * `app.project.save(File(...))` would repoint the project's own file, so the
-   * file is saved in place first and then copied — the open project keeps
+   * file is saved in place first and then copied 鈥?the open project keeps
    * pointing at the user's original.
    */
   function checkpoint(payload) {
@@ -1046,6 +1076,65 @@ var DSH_PRO = (function () {
 
   function baseNameOf(name) {
     return String(name).replace(/\.[A-Za-z0-9]+$/, '');
+  }
+
+  /**
+   * Reopen a checkpointed project.
+   *
+   * Refuses when the file cannot be opened as a project: a failed restore that
+   * silently closes the current project would be worse than not restoring.
+   */
+  function restoreCheckpoint(payload) {
+    var opts = payload || {};
+    var path = String(opts.checkpoint || '');
+    if (path === '') throw new Error('checkpoint path is required');
+
+    var file = new File(path);
+    if (!file.exists) throw new Error('checkpoint not found: ' + path);
+    if (file.length <= 0) throw new Error('checkpoint is empty: ' + path);
+
+    var proj;
+    try {
+      proj = app.open(file);
+    } catch (e1) {
+      throw new Error('could not open checkpoint as a project: ' + e1);
+    }
+    if (!proj) throw new Error('app.open() returned nothing for ' + path);
+
+    return {
+      ok: true,
+      checkpoint: file.fsName,
+      items: proj.numItems,
+      file: proj.file ? proj.file.fsName : null
+    };
+  }
+
+  /**
+   * Report the project facts the safety gate needs: where it is saved, how much
+   * is in it, and where its checkpoints would live.
+   */
+  function projectStatus() {
+    var file = app.project.file ? app.project.file.fsName : null;
+    var compCount = 0;
+    for (var i = 1; i <= app.project.numItems; i++) {
+      try { if (app.project.item(i) instanceof CompItem) compCount++; } catch (e) {}
+    }
+    var dir = null;
+    if (file !== null) {
+      var sepIdx = Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\'));
+      if (sepIdx >= 0) {
+        var sep = file.charAt(sepIdx) === '\\' ? '\\' : '/';
+        dir = file.substring(0, sepIdx) + sep + 'dsh-checkpoints';
+      }
+    }
+    return {
+      file: file,
+      saved: file !== null,
+      compCount: compCount,
+      items: app.project.numItems,
+      renderQueue: app.project.renderQueue.numItems,
+      checkpointDir: dir
+    };
   }
 
   /* ------------------------------------------------- H. addressing + fit */
@@ -1118,47 +1207,153 @@ var DSH_PRO = (function () {
   }
 
   /**
-   * Drive a text layer's rectangle to follow its glyphs.
+   * Make a background rectangle follow a text layer's real glyph bounds.
    *
-   * The expression is pure ES3 and reads sourceRectAtTime(), so a subtitle box
-   * resizes itself when copy changes instead of clipping a fixed-width panel.
+   * The previous version pointed the *shape's own* rectangle at
+   * `thisLayer.sourceRectAtTime()`, which measures the shape 鈥?a constant 鈥?so
+   * the box never followed the words. The expression must reference the text
+   * layer and convert its rect into the shape's coordinate space.
+   *
+   * Two modes:
+   *   background  drive a shape layer's Rect Size and Position from the text
+   *   text        give the text layer itself a rect-reporting expression
+   *
+   * The expression is pure ES3 and looks the text layer up by name each frame,
+   * so renaming is handled by the tool rewriting the expression rather than by
+   * a stale hard-coded index.
    */
   function autoFitText(payload) {
     var opts = payload || {};
-    var layer = resolveLayer(opts);
-    var target = opts.target || 'shape';
-    var padding = opts.padding === undefined ? 24 : Number(opts.padding);
-    var layerRef = opts.shapeLayerName || null;
+    var comp = resolveComp(opts);
 
-    var expr =
-      'var r = thisLayer.sourceRectAtTime(time, false);\n' +
-      'var p = ' + padding + ';\n' +
-      '[r.width + p * 2, r.height + p * 2];';
+    var padX = opts.paddingX === undefined ? (opts.padding === undefined ? 24 : Number(opts.padding)) : Number(opts.paddingX);
+    var padY = opts.paddingY === undefined ? (opts.padding === undefined ? 24 : Number(opts.padding)) : Number(opts.paddingY);
+    var time = (opts.time === undefined || opts.time === null) ? null : Number(opts.time);
+    var mode = String(opts.mode || (opts.shapeLayerId !== undefined || opts.shapeLayerName ? 'background' : 'text')).toLowerCase();
 
-    if (target === 'shape') {
-      // A background shape reads the text layer's rect; keyed by layer name.
-      var shape = layerRef ? findLayerByName(layer.containingComp, layerRef) : layer;
-      var rect = shape.property('ADBE Root Vectors Group').property(1)
-        .property('ADBE Vectors Group').property(1);
-      try {
-        rect.property('ADBE Vector Rect Size').expression = expr;
-        rect.property('ADBE Vector Rect Size').expressionEnabled = true;
-      } catch (e1) {
-        throw new Error('could not set shape expression: ' + e1);
-      }
-      return { applied: true, target: 'shape', layer: shape.name, padding: padding };
+    // The text layer is the measuring source in both modes.
+    var textLayer = opts.textLayerId !== undefined || opts.textLayerName !== undefined || opts.textLayerIndex !== undefined
+      ? resolveLayer({
+        compId: comp.id,
+        layerId: opts.textLayerId,
+        layerIndex: opts.textLayerIndex,
+        layerName: opts.textLayerName,
+      })
+      : resolveLayer(opts);
+
+    // A name is what an expression can look up. Escape a quote so a layer named
+    // with an apostrophe cannot break the expression string.
+    var textName = String(textLayer.name).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\r?\n/g, ' ');
+
+    var measured = measureTextBounds(textLayer, comp, time === null ? comp.time : time);
+    var result = {
+      mode: mode,
+      comp: { id: comp.id, name: comp.name },
+      textLayer: { id: textLayer.id, name: textLayer.name },
+      padding: { x: padX, y: padY },
+      bounds: measured
+    };
+
+    if (measured === null || measured.width <= 0 || measured.height <= 0) {
+      result.applied = false;
+      result.error = 'text layer reports an empty bounds rect; it may have no glyphs, '
+        + 'or its source text is empty. Nothing was changed.';
+      return result;
     }
 
-    // Text layer itself: expose the rect for downstream expressions.
-    try {
-      var ctrl = layer.property('ADBE Transform Group');
-      ctrl.property('ADBE Position').expression =
-        'var r = thisLayer.sourceRectAtTime(time, false);\n' +
-        'value + [0, 0];';
-      ctrl.property('ADBE Position').expressionEnabled = true;
-    } catch (e2) {}
+    if (mode === 'background') {
+      var shapeLayer = opts.shapeLayerId !== undefined || opts.shapeLayerName !== undefined
+        ? resolveLayer({ compId: comp.id, layerId: opts.shapeLayerId, layerName: opts.shapeLayerName })
+        : null;
+      if (shapeLayer === null) {
+        throw new Error('background mode requires shapeLayerId or shapeLayerName');
+      }
 
-    return { applied: true, target: 'text', layer: layer.name, padding: padding };
+      var sizeProp = null;
+      var posProp = null;
+      try {
+        var root = shapeLayer.property('ADBE Root Vectors Group');
+        var group = root.property(1);
+        var vg = group.property('ADBE Vectors Group');
+        // Find the Rect item rather than assuming it is the first child.
+        for (var i = 1; i <= vg.numProperties; i++) {
+          var item = vg.property(i);
+          if (item && item.matchName === 'ADBE Vector Shape - Rect') {
+            sizeProp = item.property('ADBE Vector Rect Size');
+            break;
+          }
+        }
+        posProp = group.property('ADBE Vector Transform Group').property('ADBE Vector Position');
+      } catch (e1) {
+        throw new Error('could not locate the rectangle on shape layer "' + shapeLayer.name + '": ' + e1);
+      }
+      if (sizeProp === null) {
+        throw new Error('shape layer "' + shapeLayer.name + '" has no rectangle; auto-fit needs a Rect shape');
+      }
+
+      // The expression measures the text layer, in comp space, at the current
+      // time, then offsets by the difference between the two layers' positions
+      // so the box is centred over the words rather than over the comp origin.
+      var sizeExpr =
+        'var t = thisComp.layer("' + textName + '");\n' +
+        'var r = t.sourceRectAtTime(time, false);\n' +
+        '[r.width + ' + (padX * 2) + ', r.height + ' + (padY * 2) + '];';
+
+      var posExpr =
+        'var t = thisComp.layer("' + textName + '");\n' +
+        'var r = t.sourceRectAtTime(time, false);\n' +
+        'var centre = t.toComp([r.left + r.width / 2, r.top + r.height / 2]);\n' +
+        'fromComp(centre);';
+
+      sizeProp.expression = sizeExpr;
+      sizeProp.expressionEnabled = true;
+      posProp.expression = posExpr;
+      posProp.expressionEnabled = true;
+
+      result.applied = true;
+      result.shapeLayer = { id: shapeLayer.id, name: shapeLayer.name };
+      result.expressions = { size: sizeExpr, position: posExpr };
+      result.expected = {
+        width: Math.round((measured.width + padX * 2) * 100) / 100,
+        height: Math.round((measured.height + padY * 2) * 100) / 100,
+      };
+      return result;
+    }
+
+    // text mode: publish the rect so other layers (or the user) can read it.
+    var ctrl = textLayer.property('ADBE Transform Group');
+    var anchorProp = ctrl.property('ADBE Anchor Point');
+    var anchorExpr =
+      'var r = sourceRectAtTime(time, false);\n' +
+      '[r.left + r.width / 2, r.top + r.height / 2];';
+    anchorProp.expression = anchorExpr;
+    anchorProp.expressionEnabled = true;
+
+    result.applied = true;
+    result.expressions = { anchor: anchorExpr };
+    return result;
+  }
+
+  /** Measure a text layer's glyph bounds through AE itself, for verification. */
+  function measureTextBounds(layer, comp, atTime) {
+    try {
+      var src = layer.property('ADBE Text Properties').property('ADBE Text Document');
+      var doc = atTime === undefined ? src.value : src.valueAtTime(atTime, false);
+      if (!doc || !doc.text || String(doc.text).length === 0) {
+        return { width: 0, height: 0, left: 0, top: 0, empty: true };
+      }
+    } catch (e0) {}
+    try {
+      var r = layer.sourceRectAtTime(atTime, false);
+      return {
+        width: Math.round(r.width * 100) / 100,
+        height: Math.round(r.height * 100) / 100,
+        left: Math.round(r.left * 100) / 100,
+        top: Math.round(r.top * 100) / 100
+      };
+    } catch (e1) {
+      return null;
+    }
   }
 
   function findLayerByName(comp, name) {
@@ -1501,7 +1696,7 @@ var DSH_PRO = (function () {
       try { rec.parent = l.parent ? { id: l.parent.id, name: l.parent.name } : null; } catch (e7) { rec.parent = null; }
       try { rec.source = l.source ? l.source.name : null; } catch (e8) {}
 
-      // Transform snapshot — the common case for a caller deciding what to change.
+      // Transform snapshot 鈥?the common case for a caller deciding what to change.
       try {
         var t = l.property('ADBE Transform Group');
         rec.position = toArray(t.property('ADBE Position').value);
@@ -1559,8 +1754,11 @@ var DSH_PRO = (function () {
     captureSequence: captureSequence,
     essentialGraphics: essentialGraphics,
     exportTemplate: exportTemplate,
-    audioMarkers: audioMarkers,
+    audioSource: audioSource,
+    writeMarkers: writeMarkers,
     checkpoint: checkpoint,
+    restoreCheckpoint: restoreCheckpoint,
+    projectStatus: projectStatus,
     autoFitText: autoFitText,
     runGuarded: runGuarded,
     resolveLayer: resolveLayer,
