@@ -19,6 +19,7 @@ import { AeBridge, locate, locateAerender } from './lib/bridge.js'
 import { ASPECT_NAMES, TEMPLATE_NAMES, THEME_NAMES, buildTemplate, templateCatalog } from './lib/templates.js'
 import { assertEs3 } from './lib/es3-guard.js'
 import { registerProTools } from './lib/pro-tools.js'
+import { defineToolSafe } from './lib/tool-def.js'
 
 /** Identity shown in the plugin inventory. */
 export const name = 'dsh-aftereffects'
@@ -28,14 +29,16 @@ export const inject = ['tools', 'systemPrompt']
 
 const SECTION_ORDER = 205
 
-/** Resolve `defineTool`; outside the host it degrades to identity for tests. */
-let defineTool = (definition) => definition
-try {
-  const mod = await import('@deepseek-ai/dsh-tools')
-  if (mod && typeof mod.defineTool === 'function') defineTool = mod.defineTool
-} catch {
-  /* running outside the Harness */
-}
+/**
+ * Tool definition builder.
+ *
+ * `@deepseek-ai/dsh-tools` does not resolve from a bundled plugin, so its
+ * `defineTool` degrades to identity and the author DSL (`type: 'json'`,
+ * per-property `required: true`) leaks to the gateway, which only understands
+ * standard JSON Schema — that produced a 400 on every request. `defineToolSafe`
+ * compiles the DSL here instead, with no host import at all.
+ */
+const defineTool = defineToolSafe
 
 /* -------------------------------------------------------------------------- */
 /* helpers                                                                    */
