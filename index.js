@@ -17,6 +17,8 @@
 
 import { AeBridge, locate, locateAerender } from './lib/bridge.js'
 import { ASPECT_NAMES, TEMPLATE_NAMES, THEME_NAMES, buildTemplate, templateCatalog } from './lib/templates.js'
+import { assertEs3 } from './lib/es3-guard.js'
+import { registerProTools } from './lib/pro-tools.js'
 
 /** Identity shown in the plugin inventory. */
 export const name = 'dsh-aftereffects'
@@ -502,6 +504,89 @@ export function apply(ctx, config) {
     },
   })
 
+  /* ----------------------------------------------------- ae_run_script */
+
+  register({
+    name: 'ae_run_script',
+    description: [
+      '在 After Effects 里执行任意 ExtendScript，是其余工具的逃生舱。',
+      '**发送前会做 ES3 语法预检**：检测到 const / let / 箭头函数 / 模板字符串 / class / for-of / async 等 ES2015+ 语法时，直接在 DSH 侧拦截并指出行号列号——AE 不会执行任何代码，也不会有弹窗。',
+      '执行时自动包在 undo 组里，出错返回精确的 e.message、e.line 与出错那一行源码。',
+      'payload 会成为脚本里的 payload 变量，用来传参数。返回值必须是可 JSON 序列化的值。',
+    ].join('\n'),
+    timeoutMs: 600_000,
+    parameters: {
+      code: { type: 'string', required: true, description: '要执行的 ExtendScript 源码（纯 ES3）。' },
+      payload: { type: 'json', description: '传给脚本的 payload 变量。' },
+      label: { type: 'string', description: 'undo 组标签，默认 DSH_AE。' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          ok: { type: 'boolean' },
+          value: {},
+          error: { type: 'string' },
+          line: { type: 'number' },
+          context: { type: 'string' },
+          violations: {},
+        },
+      },
+      render: (_args, value) => {
+        if (value.ok) {
+          const pretty = value.value === null || value.value === undefined
+            ? '(无返回值)'
+            : JSON.stringify(value.value, null, 2)
+          return text(`执行成功：\n${pretty}`)
+        }
+        const lines = [value.error]
+        if (typeof value.line === 'number' && value.line > 0) lines.push(`AE 报错行：${value.line}`)
+        if (value.context) lines.push(`出错代码：${value.context}`)
+        return text(lines.join('\n'))
+      },
+    },
+    async execute(args) {
+      const code = String(args?.code ?? '')
+      if (code.trim() === '') {
+        return { ok: false, value: null, error: 'code 不能为空', line: -1, context: '', violations: [] }
+      }
+      // Pre-flight: stop ES2015+ before After Effects ever parses it.
+      try {
+        assertEs3(code, 'ae_run_script code')
+      } catch (error) {
+        return {
+          ok: false, value: null, error: error.message, line: -1, context: '',
+          violations: error.violations ?? [],
+        }
+      }
+      try {
+        const value = await serial(() => bridge.runtime('pro:runGuarded', {
+          code,
+          payload: args?.payload,
+          label: args?.label,
+        }))
+        return { ok: true, value: value ?? null, error: '', line: -1, context: '', violations: [] }
+      } catch (error) {
+        return {
+          ok: false, value: null, error: formatError(error),
+          line: typeof error.line === 'number' ? error.line : -1,
+          context: typeof error.context === 'string' ? error.context : '',
+          violations: [],
+        }
+      }
+    },
+  })
+
+  /* -------------------------------------------------------- pro tool set */
+
+  registerProTools({
+    serial,
+    bridge,
+    register,
+    defineTool,
+  })
+
   /* ----------------------------------------------------------- prompt note */
 
   if (typeof ctx.systemPrompt?.section === 'function') {
@@ -509,11 +594,21 @@ export function apply(ctx, config) {
       name: 'dsh-aftereffects',
       order: SECTION_ORDER,
       text: [
-        '本机已装 **dsh-aftereffects**：可以用 `ae_*` 工具直接驱动 Adobe After Effects 出片和做模板。',
-        '- `ae_status` 先看环境；`ae_template` 用内置模板（title / lower-third / cta / logo-reveal / countdown / stat / quote / kinetic / end-card / particles / gradient）一键建合成；`ae_compose` 写完整场景文档做定制动效；`ae_render` 出 MP4 / PNG 序列 / 静帧。',
-        '- 工作流：`ae_template` 或 `ae_compose` 建合成 → `ae_render` 渲染。渲染是同步的，先建好再渲。',
-        '- 只给 stillAt 时 `ae_render` 只导一张静帧，用来快速看效果，别拿它当正片。',
-        '- After Effects 无界面实例和用户开着的 AE 窗口冲突：若启动超时，先关掉 AE 窗口再重试。',
+        '本机已装 **dsh-aftereffects**（商业 AE 模板版）：用 `ae_*` 工具直接驱动 Adobe After Effects。',
+        '',
+        '**建片**：`ae_status` 看环境 → `ae_template`（title / lower-third / cta / logo-reveal / countdown / stat / quote / kinetic / end-card / particles / gradient）或 `ae_compose`（完整场景文档）建合成 → `ae_render` 出 MP4 / PNG 序列 / 静帧。',
+        '**第三方插件**：`ae_scan_effects` 拿 matchName → `ae_inspect_plugin_params` 看参数树 → 参数改不动就用 `ae_apply_ffx_preset` 挂 .ffx 预设。',
+        '**模板交付**：`ae_essential_graphics` 绑控制器并导出 .mogrt；`ae_checkpoint` 在批量改层前留备份；`ae_capture_preview` 截图自检。',
+        '',
+        '### 商业模板开发硬约束（必须遵守）',
+        '1. **100% ES3**。脚本与表达式禁用 const / let / 箭头函数 / 模板字符串 / class / 解构 / for-of / async。`ae_run_script` 会在发送前拦截并给出精确行号——被拦下就按提示改写成 var + function，不要试图绕过。',
+        '2. **第三方插件先核对再动手**。调用任何非原生特效前，先 `ae_scan_effects` 确认 matchName，再 `ae_inspect_plugin_params` 确认参数索引。**`customValue=true` 的参数是 CUSTOM_VALUE 二进制黑盒，严禁赋值**，只能改用 .ffx 预设或放弃脚本化。改参数优先用 `propertyIndex` 或 `matchName`，绝不用中文显示名。',
+        '3. **文字底栏/字幕框必须自适应**。给字幕背景注入 `sourceRectAtTime()` 边界表达式，让框跟着文字长宽走，禁止写死固定宽高导致溢出。',
+        '4. **禁止默认线性关键帧**。必须用 `setTemporalEaseAtKey()` 设置平滑贝塞尔缓动，或挂弹性/阻尼表达式；`ae_compose` 的 `animate.ease` 至少给 `out` 或 `both`。',
+        '5. **重活之后必须自检**。挂完重型视觉特效或排完核心版式，调 `ae_capture_preview`（建议 longEdge≈640）截图，检查文字溢出、粒子/辉光过曝、构图穿帮，有问题就修。',
+        '6. **破坏性批量操作前先 `ae_checkpoint`**，避免把用户原工程改崩。',
+        '',
+        'After Effects 无界面实例与用户开着的 AE 窗口冲突：若启动超时，先关掉 AE 窗口再重试。',
       ].join('\n'),
     }))
   }

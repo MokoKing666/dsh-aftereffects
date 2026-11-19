@@ -1,7 +1,7 @@
 {
   "name": "dsh-aftereffects",
-  "version": "1.0.2",
-  "description": "Drive Adobe After Effects from DeepSeek Harness: build compositions and motion-graphics templates, then render MP4 or PNG without leaving the chat.",
+  "version": "2.0.0",
+  "description": "Commercial AE template toolkit: drive After Effects from DeepSeek Harness to build compositions, scan installed effects, inspect plugin parameters, capture previews, bind Essential Graphics controllers, mark audio beats, and snapshot projects before bulk edits.",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -37,7 +37,13 @@
     "mp4",
     "template",
     "animation",
-    "aftereffects"
+    "aftereffects",
+    "motion-graphics-template",
+    "mogrt",
+    "essential-graphics",
+    "ffx",
+    "effect-scan",
+    "es3"
   ],
   "engines": {
     "node": ">=18"

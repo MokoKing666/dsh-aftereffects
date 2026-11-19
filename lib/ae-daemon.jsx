@@ -17,6 +17,7 @@
 
   var ROOT = CONFIG.root;
   var RUNTIME = CONFIG.runtime;
+  var PRO_RUNTIME = CONFIG.proRuntime || null;
   var LIFETIME_MS = CONFIG.lifetimeMs || 1800000;
 
   var jobsDir = new Folder(ROOT + '/jobs');
@@ -91,7 +92,51 @@
     return;
   }
 
-  log('daemon up: ae=' + app.version + ' runtime=' + DSH.version);
+  // The pro pack builds on the core runtime's helpers. Exposing them on the
+  // global object lets the second file run in the same global scope without
+  // duplicating any of that logic.
+  var CORE = DSH;
+  // Publish the core runtime so the pro pack (evaluated next, in this same
+  // global scope) reuses its helpers instead of duplicating them. Assigning a
+  // plain global keeps `eval` in non-strict ES3 semantics.
+  var PRO = null;
+
+  if (PRO_RUNTIME !== null) {
+    var proSource = readText(PRO_RUNTIME);
+    if (proSource === null) {
+      log('pro runtime missing: ' + PRO_RUNTIME);
+    } else {
+      try {
+        // Inject the core runtime as `DSH` for the pro pack. eval'ing a
+        // wrapper keeps the pro source as-is while giving it a defined global.
+        PRO = eval('(function(DSH){\n' + proSource + '\n;return DSH_PRO;\n})')(CORE);
+      } catch (e2) {
+        log('pro runtime load failed: ' + e2 + ' @' + (e2.line || '?'));
+      }
+    }
+  }
+
+  /** Resolve a runtime entry name, honouring a `pro:` namespace prefix. */
+  function resolveEntry(name) {
+    var raw = String(name);
+    var pro = false;
+    if (raw.indexOf('pro:') === 0) {
+      pro = true;
+      raw = raw.substring(4);
+    }
+    var table = pro ? PRO : DSH;
+    if (table === null || table === undefined) {
+      throw new Error((pro ? 'pro runtime' : 'runtime') + ' is unavailable');
+    }
+    var fn = table[raw];
+    if (typeof fn !== 'function') {
+      throw new Error('unknown runtime entry: ' + (pro ? 'pro:' : '') + raw);
+    }
+    return fn;
+  }
+
+  log('daemon up: ae=' + app.version + ' runtime=' + DSH.version
+    + ' pro=' + (PRO === null ? 'off' : 'on'));
 
   var startedAt = new Date().getTime();
   var handled = 0;
@@ -131,9 +176,8 @@
         var value;
         if (job.runtime) {
           // run a named runtime entry: { runtime: 'buildScene', payload: {...} }
-          var fn = DSH[String(job.runtime)];
-          if (typeof fn !== 'function') throw new Error('unknown runtime entry: ' + job.runtime);
-          value = fn(job.payload);
+          // a `pro:` prefix selects the pro pack.
+          value = resolveEntry(job.runtime)(job.payload);
         } else if (job.code) {
           value = eval('(function(payload, DSH){\n' + job.code + '\n})')(job.payload, DSH);
         } else {

@@ -780,7 +780,10 @@ var DSH = (function () {
     if (isNum(spec.inPoint)) layer.inPoint = spec.inPoint;
     if (isNum(spec.outPoint)) layer.outPoint = spec.outPoint;
 
-    return { name: layer.name, index: layer.index, type: type };
+    // `layer.index` is re-read here because adding layers re-stacks the comp;
+    // reporting the index captured at insertion would be stale for every layer
+    // except the newest.
+    return { name: layer.name, id: layer.id, index: layer.index, type: type };
   }
 
   /**
@@ -829,6 +832,17 @@ var DSH = (function () {
         if (scene.camera.position) cam.property(TRANSFORM).property('ADBE Position').setValue(scene.camera.position);
         if (isNum(scene.camera.zoom)) cam.property('ADBE Camera Options Group').property('ADBE Camera Zoom').setValue(scene.camera.zoom);
       } catch (e3) {}
+    }
+
+    // Re-index once the stack is final, so callers get the indices that
+    // actually address each layer now.
+    for (var b = 0; b < built.length; b++) {
+      if (built[b].error) continue;
+      try {
+        for (var L = 1; L <= comp.numLayers; L++) {
+          if (comp.layer(L).name === built[b].name) { built[b].index = L; break; }
+        }
+      } catch (e5) {}
     }
 
     return {
